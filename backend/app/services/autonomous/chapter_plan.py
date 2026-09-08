@@ -32,17 +32,9 @@ from app.services.forge import provenance
 from app.services.forge.compiler import ChapterContextCompiler, ContextCompileError
 from app.services.forge.textmetrics import BEAT_FUNCTIONS
 
-PLAN_PROMPT_VERSION = "autonomous-chapter-plan-1"
+PLAN_PROMPT_VERSION = "autonomous-chapter-plan-1"  # legacy label for outline provenance; live runs record the Prompt-table version
 WINDOW = 8
 DEFAULT_WORDS_PER_CHAPTER = 2500
-
-SYSTEM_PROMPT = (
-    "You are the chapter planner of an original novel. For each requested chapter produce a complete blueprint: purpose, POV (a listed character), location (a listed location), "
-    "4-8 ordered beats with a function tag from the allowed list and 2-6 keywords each, reveals/setups/payoffs consistent with the architecture's setup-payoff schedule, "
-    "state/relationship/knowledge transitions, target tension, a closing hook, allowed_outcomes (persistent facts this chapter establishes) and forbidden_outcomes "
-    "(facts reserved for later chapters, especially every knowledge fact whose reveal chapter is later). Use only listed character and location names. "
-    "Never reuse anything from the reference novel. Output must validate against the schema."
-)
 
 
 def _c(card: Optional[Card]) -> Dict[str, Any]:
@@ -154,8 +146,10 @@ def _arch_digest(arch: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def build_prompt(arch: Dict[str, Any], *, chapters: Sequence[int], total: int, word_target: int, previous: Sequence[Dict[str, Any]], committed_summaries: Sequence[Dict[str, Any]] = (), problems: Sequence[Dict[str, Any]] = (), drafts: Optional[Sequence[Dict[str, Any]]] = None) -> str:
+def build_prompt(arch: Dict[str, Any], *, chapters: Sequence[int], total: int, word_target: int, previous: Sequence[Dict[str, Any]], committed_summaries: Sequence[Dict[str, Any]] = (), problems: Sequence[Dict[str, Any]] = (), drafts: Optional[Sequence[Dict[str, Any]]] = None, charter_text: str = "") -> str:
     parts = [_arch_digest(arch), f"\n[ALLOWED BEAT FUNCTIONS]\n{', '.join(BEAT_FUNCTIONS)}"]
+    if charter_text.strip():
+        parts.append("\n[STORY CHARTER — the author's requirements; shape every blueprint by them]\n" + charter_text.strip())
     if committed_summaries:
         parts.append("\n[ALREADY WRITTEN CHAPTERS — immutable; plan continuity from their actual state]")
         for s in committed_summaries:
@@ -268,10 +262,15 @@ def existing_outlines(session: Session, project_id: int) -> Dict[int, Dict[str, 
 # ------------------------------------------------------------------- stages
 
 async def plan_range(session: Session, *, project_id: int, arch: Dict[str, Any], client: ModelClient, chapters: Sequence[int], total: int, word_target: int, previous: Sequence[Dict[str, Any]], committed: Sequence[Dict[str, Any]], stage: str, max_rounds: int = 3) -> List[Dict[str, Any]]:
+    from app.services.ai.prompt_registry import PROMPT_CHAPTER_PLAN, system_prompt
+    from app.services.story_charter import CharterService
+
+    prompt = system_prompt(session, PROMPT_CHAPTER_PLAN)
+    charter_text = CharterService(session).render(project_id, consumer="chapter_plan")
     problems: List[Dict[str, Any]] = []
     drafts: Optional[List[Dict[str, Any]]] = None
     for _ in range(max_rounds):
-        result = await client.structured(role="chapter_planner", schema=ChapterBlueprintBatch, system_prompt=SYSTEM_PROMPT, user_prompt=build_prompt(arch, chapters=chapters, total=total, word_target=word_target, previous=previous, committed_summaries=committed, problems=problems, drafts=drafts), prompt_version=PLAN_PROMPT_VERSION, stage=stage)
+        result = await client.structured(role="chapter_planner", schema=ChapterBlueprintBatch, system_prompt=prompt.text, user_prompt=build_prompt(arch, chapters=chapters, total=total, word_target=word_target, previous=previous, committed_summaries=committed, problems=problems, drafts=drafts, charter_text=charter_text), prompt_version=prompt.version, stage=stage)
         drafts = [c.model_dump(mode="json") for c in result.chapters if int(c.chapter_number) in set(chapters)]
         problems = validate_blueprints(drafts, arch, expected=chapters)
         if not problems:

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
 from sqlalchemy.orm.attributes import flag_modified
@@ -180,6 +180,58 @@ class DigestService:
             f"Story time: {prev.story_time}"
         )
 
+    def build_prompts(self, *, project_id: int, text: str, chapter_number: int, volume_number: Optional[int] = None, title: str = "", participants: Optional[List[str]] = None) -> Tuple[str, str]:
+        """(system_prompt, user_prompt) for a digest extraction; shared by the direct and the budgeted (autonomous) paths."""
+        prompt = prompt_service.get_prompt_by_name(self.session, PROMPT_NAME)
+        if not prompt or not prompt.template:
+            raise ValueError(f"Prompt not found: {PROMPT_NAME}")
+        schema = filter_schema_for_ai(ChapterDigest.model_json_schema())
+        system_prompt = prompt_service.inject_knowledge(self.session, str(prompt.template)) + (
+            "\n\nOutput strictly as JSON matching this schema:\n" + json.dumps(schema, ensure_ascii=False)
+        )
+        parts = [
+            f"Chapter number: {chapter_number}" + (f" (volume {volume_number})" if volume_number is not None else ""),
+            f"Chapter title: {title or '(untitled)'}",
+            f"Known participants: {', '.join(participants) if participants else '(infer from text)'}",
+            "",
+            "[Canonical entities and open ledgers — use these exact names]",
+            self._reference_digest(project_id, participants or []) or "(empty Bible)",
+        ]
+        prev = self._previous_digest_text(project_id, chapter_number)
+        if prev:
+            parts += ["", "[Previous chapter memory]", prev]
+        parts += ["", "[Chapter text]", text]
+        return system_prompt, "\n".join(parts)
+
+    def finalize_digest(self, digest: ChapterDigest, *, text: str, chapter_number: int, volume_number: Optional[int], title: str, chapter_card_id: Optional[int], llm_config_id: Optional[int]) -> ChapterDigest:
+        """Stamp system fields and normalise model output before storage."""
+        digest.chapter_number = chapter_number
+        if volume_number is not None:
+            digest.volume_number = volume_number
+        if title and not digest.title:
+            digest.title = title
+        digest.word_count = count_units(text)
+        digest.source_hash = text_hash(text)
+        digest.chapter_card_id = chapter_card_id
+        digest.digested_at = datetime.now().isoformat(timespec="seconds")
+        digest.llm_config_id = llm_config_id
+        digest.stale = False
+        for ev in digest.evidence:
+            if ev.chapter_number is None:
+                ev.chapter_number = chapter_number
+            if ev.quote:
+                ev.quote = _trim(ev.quote, 200)
+        for q in digest.quotable_lines:
+            q.line = _trim(q.line, 160)
+        return digest
+
+    def is_fresh(self, project_id: int, chapter_number: int, text: str) -> bool:
+        existing = self.find_digest_card(project_id, chapter_number)
+        if not existing:
+            return False
+        c = _content(existing)
+        return c.get("source_hash") == text_hash((text or "").strip()) and not c.get("stale")
+
     async def digest_chapter(
         self,
         *,
@@ -200,34 +252,12 @@ class DigestService:
         text = (text or "").strip()
         if not text:
             raise ValueError("Chapter text is empty")
-        source_hash = text_hash(text)
         existing = self.find_digest_card(project_id, chapter_number)
-        if existing and not force:
-            c = _content(existing)
-            if c.get("source_hash") == source_hash and not c.get("stale"):
-                logger.info(f"[StoryMemory] digest for ch.{chapter_number} is fresh; skipping")
-                return existing
+        if existing and not force and self.is_fresh(project_id, chapter_number, text):
+            logger.info(f"[StoryMemory] digest for ch.{chapter_number} is fresh; skipping")
+            return existing
 
-        prompt = prompt_service.get_prompt_by_name(self.session, PROMPT_NAME)
-        if not prompt or not prompt.template:
-            raise ValueError(f"Prompt not found: {PROMPT_NAME}")
-        schema = filter_schema_for_ai(ChapterDigest.model_json_schema())
-        system_prompt = prompt_service.inject_knowledge(self.session, str(prompt.template)) + (
-            "\n\nOutput strictly as JSON matching this schema:\n" + json.dumps(schema, ensure_ascii=False)
-        )
-        parts = [
-            f"Chapter number: {chapter_number}" + (f" (volume {volume_number})" if volume_number is not None else ""),
-            f"Chapter title: {title or '(untitled)'}",
-            f"Known participants: {', '.join(participants) if participants else '(infer from text)'}",
-            "",
-            "[Canonical entities and open ledgers — use these exact names]",
-            self._reference_digest(project_id, participants or []) or "(empty Bible)",
-        ]
-        prev = self._previous_digest_text(project_id, chapter_number)
-        if prev:
-            parts += ["", "[Previous chapter memory]", prev]
-        parts += ["", "[Chapter text]", text]
-        user_prompt = "\n".join(parts)
+        system_prompt, user_prompt = self.build_prompts(project_id=project_id, text=text, chapter_number=chapter_number, volume_number=volume_number, title=title, participants=participants)
 
         logger.info(f"[StoryMemory] digesting project={project_id} ch.{chapter_number} words={count_units(text)}")
         result = await llm_service.generate_structured(
@@ -241,24 +271,7 @@ class DigestService:
             timeout=timeout,
         )
         digest = result if isinstance(result, ChapterDigest) else ChapterDigest.model_validate(result)
-        digest.chapter_number = chapter_number
-        if volume_number is not None:
-            digest.volume_number = volume_number
-        if title and not digest.title:
-            digest.title = title
-        digest.word_count = count_units(text)
-        digest.source_hash = source_hash
-        digest.chapter_card_id = chapter_card_id
-        digest.digested_at = datetime.now().isoformat(timespec="seconds")
-        digest.llm_config_id = llm_config_id
-        digest.stale = False
-        for ev in digest.evidence:
-            if ev.chapter_number is None:
-                ev.chapter_number = chapter_number
-            if ev.quote:
-                ev.quote = _trim(ev.quote, 200)
-        for q in digest.quotable_lines:
-            q.line = _trim(q.line, 160)
+        digest = self.finalize_digest(digest, text=text, chapter_number=chapter_number, volume_number=volume_number, title=title, chapter_card_id=chapter_card_id, llm_config_id=llm_config_id)
         return self.save_digest(project_id, digest, existing=existing, commit=commit)
 
     def save_digest(self, project_id: int, digest: ChapterDigest, *, existing: Optional[Card] = None, commit: bool = True) -> Card:

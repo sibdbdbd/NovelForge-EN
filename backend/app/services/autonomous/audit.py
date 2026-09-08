@@ -31,7 +31,7 @@ from app.services.forge import firewall as fw
 from app.services.forge import provenance
 from app.services.forge import validators as v
 from app.services.forge.compiler import ChapterContextCompiler
-from app.services.forge.pipeline import REPAIR_SYSTEM_PROMPT, build_repair_prompt, source_profile_for, validate_draft
+from app.services.forge.pipeline import build_repair_prompt, resolve_prompts, source_profile_for, validate_draft
 from app.services.forge.textmetrics import measure, split_paragraphs, split_sentences, tokenize
 
 AUDIT_VERSION = "whole-novel-audit-1"
@@ -297,7 +297,8 @@ async def global_repair(session: Session, *, project_id: int, chapter_count: int
             session.rollback()
         except Exception as exc:  # noqa: BLE001 - compile for an already committed chapter should work; report otherwise
             raise fail.StageFailure(fail.STALE_DEPENDENCY, f"Cannot recompile chapter {n} for global repair: {exc}")
-        raw = await client.text(role="whole_novel_editor", system_prompt=REPAIR_SYSTEM_PROMPT, user_prompt=build_repair_prompt(ctx, text, issues), prompt_version=GLOBAL_REPAIR_PROMPT_VERSION, stage=f"GLOBAL_REPAIR:ch{n}")
+        _, repair_prompt = resolve_prompts(session)
+        raw = await client.text(role="whole_novel_editor", system_prompt=repair_prompt.text, user_prompt=build_repair_prompt(ctx, text, issues), prompt_version=repair_prompt.version, stage=f"GLOBAL_REPAIR:ch{n}")
         check()
         prose, model_claims = claims_mod.split_prose_and_claims(raw)
         report, all_claims, model_claims = validate_draft(session, ctx, raw, profile=profile, fingerprint=fingerprint)
@@ -306,6 +307,9 @@ async def global_repair(session: Session, *, project_id: int, chapter_count: int
             persist(cp)
             continue  # keep the original; the finding stays in the report
         c = _c(card)
+        from app.services import revision_service
+
+        revision_service.snapshot_before_overwrite(session, card, reason="global_repair", actor="ai", note=f"issues: {', '.join(i.code for i in issues)[:200]}")
         c.setdefault("revisions", []).append({"replaced_at": datetime.now().isoformat(timespec="seconds"), "reason": "global_repair", "issues": [i.code for i in issues], "previous_hash": provenance.content_hash(text)})
         c["content"] = prose
         c["sync_status"] = "pending"

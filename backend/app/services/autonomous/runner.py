@@ -257,6 +257,41 @@ class JobRunner:
                 pass
         return prefs
 
+    # --------------------------------------------------------------- charter
+    def _reference_title(self, job: AutonomousNovelJob) -> str:
+        if not job.source_project_id:
+            return ""
+        try:
+            from app.services.forge.corpus import manuscript_meta
+
+            return str((manuscript_meta(self.session, int(job.source_project_id)) or {}).get("title") or "")
+        except Exception:  # noqa: BLE001 - title is cosmetic
+            return ""
+
+    def _ensure_charter(self, job: AutonomousNovelJob) -> None:
+        """Seed the original project's Story Charter from the job options exactly once (an author-edited charter wins)."""
+        if not job.original_project_id:
+            return
+        from app.services.story_charter import CharterService
+
+        opts = dict(job.options or {})
+        opts.setdefault("target_chapters", job.chapter_count)
+        CharterService(self.session).ensure_from_job(int(job.original_project_id), opts, reference_title=self._reference_title(job), job_id=job.id)
+        self.session.commit()
+
+    def _charter_text(self, job: AutonomousNovelJob, *, consumer: str) -> str:
+        """Rendered charter for a prompt consumer: the persisted card when the original project exists, otherwise the job options."""
+        from app.services.story_charter import CharterService, charter_from_job_options, render_charter
+
+        if job.original_project_id:
+            text = CharterService(self.session).render(int(job.original_project_id), consumer=consumer)
+            if text:
+                return text
+        opts = dict(job.options or {})
+        if job.chapter_count:
+            opts.setdefault("target_chapters", job.chapter_count)
+        return render_charter(charter_from_job_options(opts, reference_title=self._reference_title(job), job_id=job.id), consumer=consumer)
+
     # --------------------------------------------------------------- stages
     async def _run_stage(self, job: AutonomousNovelJob, stage: str) -> Dict[str, Any]:
         client = self._client(job)
@@ -281,7 +316,7 @@ class JobRunner:
         if stage == "EXAMPLE_LIBRARY_BUILD":
             return src.stage_example_library(self.session, self._source_ctx(job, client))
         if stage == "STORYLINE_GENERATION":
-            return await story_mod.stage_storyline_generation(self.session, job_id=job.id, source_project_id=int(job.source_project_id), client=client, preferences=self._preferences(job), count=int(opts.get("storyline_count") or story_mod.TARGET_OPTIONS))
+            return await story_mod.stage_storyline_generation(self.session, job_id=job.id, source_project_id=int(job.source_project_id), client=client, preferences=self._preferences(job), count=int(opts.get("storyline_count") or story_mod.TARGET_OPTIONS), charter_text=self._charter_text(job, consumer="storylines"))
         if stage == "STORYLINE_SELECTION":
             if not job.selected_storyline_id or not job.chapter_count:
                 raise fail.StageFailure(fail.USER_INPUT_REQUIRED, "Select a storyline and a chapter count")
@@ -294,8 +329,10 @@ class JobRunner:
                 pid = existing.id if existing else transfer.create_original_project(self.session, source_project_id=int(job.source_project_id), name=name, description=str(storyline.get("hook") or ""), template=None).project_id
                 self._publish(original_project_id=pid)
                 job = self.job
+            self._ensure_charter(job)
             profile = story_mod.source_profile(self.session, int(job.source_project_id))
-            return await arch_mod.stage_novel_architecture(self.session, original_project_id=int(job.original_project_id), source_project_id=int(job.source_project_id), storyline=self._storyline(job), chapter_count=job.chapter_count, client=client, brief=story_mod.source_brief(self.session, int(job.source_project_id), preferences=self._preferences(job)), preferences=self._preferences(job), profile=profile)
+            charter_text = self._charter_text(job, consumer="architecture")
+            return await arch_mod.stage_novel_architecture(self.session, original_project_id=int(job.original_project_id), source_project_id=int(job.source_project_id), storyline=self._storyline(job), chapter_count=job.chapter_count, client=client, brief=story_mod.source_brief(self.session, int(job.source_project_id), preferences=self._preferences(job), charter_text=charter_text), preferences=self._preferences(job), profile=profile, charter_text=charter_text)
         if stage == "BIBLE_BUILD":
             return arch_mod.stage_bible_build(self.session, original_project_id=int(job.original_project_id), chapter_count=job.chapter_count, storyline=self._storyline(job))
         if stage == "CHAPTER_PLAN_BUILD":

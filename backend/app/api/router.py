@@ -14,6 +14,7 @@ from app.api.endpoints import lab as lab_ep
 from app.api.endpoints import memory as memory_ep
 from app.api.endpoints import relation_graph as relation_graph_ep
 from app.api.endpoints import story_memory as story_memory_ep
+from app.api.endpoints import story_charter as story_charter_ep
 from app.api.endpoints import workflow_agent as workflow_agent_ep
 from app.api.endpoints import workflows as workflows_ep
 
@@ -38,6 +39,7 @@ api_router.include_router(foreshadow_ep.router, prefix="/foreshadow", tags=["for
 api_router.include_router(bible_ep.router, prefix="/bible", tags=["bible"])
 api_router.include_router(lab_ep.router, prefix="/lab", tags=["lab"])
 api_router.include_router(story_memory_ep.router, prefix="/story-memory", tags=["story-memory"])
+api_router.include_router(story_charter_ep.router, prefix="/story-charter", tags=["story-charter"])
 api_router.include_router(forge_ep.router, prefix="/forge", tags=["forge"])
 api_router.include_router(craft_ep.router, prefix="/craft", tags=["craft"])
 api_router.include_router(autonomous_ep.router, prefix="/autonomous", tags=["autonomous"])
