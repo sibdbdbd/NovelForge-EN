@@ -204,6 +204,16 @@ def update_card(card_id: int, card: CardUpdate, db: Session = Depends(get_sessio
         old_content = copy.deepcopy(old_card.content)
 
     was_needs_confirmation = getattr(old_card, 'needs_confirmation', False) if old_card else False
+
+    # Snapshot the previous content before it is replaced so an accidental save, a pasted AI
+    # draft or a bad merge can be undone from the server-side history.
+    if old_card is not None and 'content' in card.model_fields_set and card.content is not None:
+        try:
+            from app.services import revision_service
+
+            revision_service.snapshot_before_overwrite(db, old_card, reason="user_save", actor="user", new_content=card.content)
+        except Exception:
+            logger.exception("Card revision snapshot failed (continuing with save)")
     
     service = CardService(db)
     db_card = service.update(card_id, card)
@@ -250,6 +260,46 @@ def update_card(card_id: int, card: CardUpdate, db: Session = Depends(get_sessio
     # Header is managed by Middleware
     
     return db_card
+
+
+@router.get("/cards/{card_id}/revisions", response_model=List[Dict[str, Any]], summary="Server-side content snapshots taken before overwrites (newest first)")
+def list_card_revisions(card_id: int, limit: int = 50, include_content: bool = False, db: Session = Depends(get_session)):
+    from app.services import revision_service
+
+    if db.get(Card, card_id) is None:
+        raise HTTPException(status_code=404, detail="Card not found")
+    return [revision_service.revision_dict(r, include_content=include_content) for r in revision_service.list_revisions(db, card_id, limit=limit)]
+
+
+@router.get("/cards/{card_id}/revisions/{revision_id}", response_model=Dict[str, Any], summary="One snapshot with its full content")
+def get_card_revision(card_id: int, revision_id: int, db: Session = Depends(get_session)):
+    from app.db.models import CardRevision
+    from app.services import revision_service
+
+    rev = db.get(CardRevision, revision_id)
+    if rev is None or rev.card_id != card_id:
+        raise HTTPException(status_code=404, detail="Revision not found for this card")
+    return revision_service.revision_dict(rev, include_content=True)
+
+
+@router.post("/cards/{card_id}/revisions/{revision_id}/restore", response_model=CardRead, summary="Make a snapshot the current content (the replaced content is snapshotted first)")
+def restore_card_revision(card_id: int, revision_id: int, db: Session = Depends(get_session)):
+    from app.db.models import CardRevision
+    from app.services import revision_service
+
+    card = db.get(Card, card_id)
+    rev = db.get(CardRevision, revision_id)
+    if card is None or rev is None or rev.card_id != card_id:
+        raise HTTPException(status_code=404, detail="Revision not found for this card")
+    import copy
+
+    previous = copy.deepcopy(card.content) if card.content else None
+    restored = revision_service.restore(db, card, rev, actor="user")
+    try:
+        emit_event("card.saved", {"session": db, "card": restored, "is_created": False, "old_content": previous, "card_type": _resolve_card_type_name(db, restored)})
+    except Exception:
+        logger.exception("card.saved handlers failed after restore")
+    return restored
 
 
 @router.post("/cards/batch-reorder")

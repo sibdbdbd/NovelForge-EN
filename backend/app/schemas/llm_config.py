@@ -69,6 +69,8 @@ class LLMConnectionTest(SQLModel):
     api_protocol: LLMApiProtocol = "chat_completions"
     custom_request_path: Optional[str] = None
     user_agent: Optional[str] = None
+    # When the client only holds a masked key, the stored key of this configuration is used.
+    config_id: Optional[int] = None
 
 class LLMGetModelsRequest(SQLModel):
     provider: str
@@ -77,6 +79,7 @@ class LLMGetModelsRequest(SQLModel):
     api_protocol: LLMApiProtocol = "chat_completions"
     models_path: Optional[str] = None
     user_agent: Optional[str] = None
+    config_id: Optional[int] = None
 
 
 class LLMCapabilityTestRequest(LLMConnectionTest):
@@ -84,7 +87,6 @@ class LLMCapabilityTestRequest(LLMConnectionTest):
     test_models_list: bool = False
     try_repair: bool = False
     save_result: bool = False
-    config_id: Optional[int] = None
 
 
 class LLMCapabilityProbeResult(SQLModel):

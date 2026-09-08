@@ -192,3 +192,66 @@ def delete_update(review_id: int, session: Session = Depends(get_session)):
     if not ok:
         raise HTTPException(status_code=404, detail="Review not found")
     return {"success": True}
+
+
+class AuthorLocksRequest(BaseModel):
+    fields: List[str] = Field(default_factory=list, description="Field names the system must never rewrite; '*' locks the whole card")
+
+
+class AuthorLocksResponse(BaseModel):
+    card_id: int
+    locks: List[str]
+    suppressed_updates: List[Dict[str, Any]]
+
+
+@router.get("/cards/{card_id}/locks", response_model=AuthorLocksResponse, summary="Author locks on a Bible card and the system updates they suppressed")
+def get_locks(card_id: int, session: Session = Depends(get_session)) -> AuthorLocksResponse:
+    from app.db.models import Card
+    from app.services.bible import author_locks
+
+    card = session.get(Card, card_id)
+    if card is None:
+        raise HTTPException(status_code=404, detail="Card not found")
+    c = card.content if isinstance(card.content, dict) else {}
+    return AuthorLocksResponse(card_id=card_id, locks=author_locks.locks_of(c), suppressed_updates=list(c.get(author_locks.SUPPRESSED_KEY) or []))
+
+
+@router.put("/cards/{card_id}/locks", response_model=AuthorLocksResponse, summary="Set author locks (replaces the list; empty clears)")
+def set_locks(card_id: int, req: AuthorLocksRequest, session: Session = Depends(get_session)) -> AuthorLocksResponse:
+    from sqlalchemy.orm.attributes import flag_modified
+
+    from app.db.models import Card
+    from app.services.bible import author_locks
+
+    card = session.get(Card, card_id)
+    if card is None:
+        raise HTTPException(status_code=404, detail="Card not found")
+    c = dict(card.content) if isinstance(card.content, dict) else {}
+    author_locks.set_locks(c, req.fields)
+    if not author_locks.locks_of(c):
+        c.pop(author_locks.SUPPRESSED_KEY, None)
+    card.content = c
+    flag_modified(card, "content")
+    card.last_modified_by = "user"
+    session.add(card)
+    session.commit()
+    return AuthorLocksResponse(card_id=card_id, locks=author_locks.locks_of(c), suppressed_updates=list(c.get(author_locks.SUPPRESSED_KEY) or []))
+
+
+@router.delete("/cards/{card_id}/locks/suppressed", response_model=AuthorLocksResponse, summary="Clear the suppressed-updates list after reviewing it")
+def clear_suppressed(card_id: int, session: Session = Depends(get_session)) -> AuthorLocksResponse:
+    from sqlalchemy.orm.attributes import flag_modified
+
+    from app.db.models import Card
+    from app.services.bible import author_locks
+
+    card = session.get(Card, card_id)
+    if card is None:
+        raise HTTPException(status_code=404, detail="Card not found")
+    c = dict(card.content) if isinstance(card.content, dict) else {}
+    c.pop(author_locks.SUPPRESSED_KEY, None)
+    card.content = c
+    flag_modified(card, "content")
+    session.add(card)
+    session.commit()
+    return AuthorLocksResponse(card_id=card_id, locks=author_locks.locks_of(c), suppressed_updates=[])

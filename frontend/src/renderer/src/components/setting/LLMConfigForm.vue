@@ -416,7 +416,9 @@ function buildTransportPayload() {
     api_protocol: form.api_protocol || 'chat_completions',
     custom_request_path: form.custom_request_path.trim() || undefined,
     models_path: form.models_path.trim() || undefined,
-    user_agent: form.user_agent.trim() || undefined
+    user_agent: form.user_agent.trim() || undefined,
+    // The backend only ever returns a masked key; with the config id it can use the stored key for tests.
+    config_id: form.id ?? undefined
   }
 }
 
