@@ -179,7 +179,7 @@ class ChapterContextCompiler:
             return
         if manifest is None or manifest.latest_committed_chapter < chapter_number - 1:
             raise ContextCompileError("previous_chapter_not_synchronized", f"Chapter {chapter_number - 1} has not been committed and synchronized (latest committed: {manifest.latest_committed_chapter if manifest else 0})")
-        prev_run = self.session.exec(select(ChapterPipelineRun).where(ChapterPipelineRun.project_id == project_id, ChapterPipelineRun.chapter_number == chapter_number - 1).order_by(ChapterPipelineRun.id.desc())).first()
+        prev_run = self.session.exec(select(ChapterPipelineRun).where(ChapterPipelineRun.project_id == project_id, ChapterPipelineRun.chapter_number == chapter_number - 1, ChapterPipelineRun.status != "superseded").order_by(ChapterPipelineRun.id.desc())).first()
         if prev_run is not None and prev_run.status not in ("committed",):
             raise ContextCompileError("previous_chapter_not_synchronized", f"Latest pipeline run for chapter {chapter_number - 1} ended in status '{prev_run.status}'")
 
@@ -284,6 +284,19 @@ class ChapterContextCompiler:
             sections.append(Section("story_charter", "STORY CHARTER — the author's requirements (fixed requirements outrank every other section)", charter_text, mandatory=True, card_ids=[charter_card.id], revisions=[_rev(charter_card)], priority=0))
             include(charter_card, "story charter")
             fact_classes["prohibited"] += [f"[charter {b.id}] {b.text}" for b in charter.boundaries]
+
+        # 0b. Author Directives for this chapter (the author's live steering; same authority as the charter).
+        directives_text, directive_card = self._author_directives(project_id, chapter_number)
+        if directives_text and directive_card is not None:
+            sections.append(Section("author_directives", f"AUTHOR DIRECTIVES — steering notes that apply to chapter {chapter_number} (same authority as the Story Charter)", directives_text, mandatory=True, card_ids=[directive_card.id], revisions=[_rev(directive_card)], priority=0))
+            include(directive_card, "author directives")
+
+        # 0c. Webnovel Style Profile: how the prose must read (conventions, rewards, ending discipline).
+        style_text, style_card = self._webnovel_style(project_id)
+        if style_text:
+            sections.append(Section("webnovel_style", "WEBNOVEL STYLE — platform conventions this chapter must read by (outranks the fingerprint where they disagree)", style_text, mandatory=True, card_ids=[style_card.id] if style_card else [], revisions=[_rev(style_card)] if style_card else [], priority=2))
+            if style_card is not None:
+                include(style_card, "webnovel style profile")
 
         # 1-2. Reader Contract, Story Foundation (mandatory)
         contract = self.bible.singleton(project_id, "Reader Contract")
@@ -742,6 +755,40 @@ class ChapterContextCompiler:
 
             logger.warning(f"[Compiler] Story So Far unavailable for project {project_id} ch.{chapter_number}: {exc}")
             return None
+
+    def _author_directives(self, project_id: int, chapter_number: int) -> Tuple[str, Optional[Card]]:
+        """Rendered author directives that apply to this chapter. Degradable."""
+        try:
+            from app.services.forge.webnovel.service import DirectiveService
+
+            svc = DirectiveService(self.session)
+            card = svc.card(project_id)
+            if card is None:
+                return "", None
+            return svc.render(project_id, chapter=chapter_number, consumer="drafting", max_chars=2400), card
+        except Exception as exc:  # noqa: BLE001 - steering notes must never block generation
+            from loguru import logger
+
+            logger.warning(f"[Compiler] author directives unavailable for project {project_id} ch.{chapter_number}: {exc}")
+            return "", None
+
+    def _webnovel_style(self, project_id: int) -> Tuple[str, Optional[Card]]:
+        """Rendered Webnovel Style Profile for drafting (stored profile, else genre-neutral defaults). Degradable."""
+        try:
+            from app.services.forge.webnovel.render import render_for_drafting
+            from app.services.forge.webnovel.service import WebnovelStyleService
+
+            svc = WebnovelStyleService(self.session)
+            card = svc.card(project_id)
+            profile = svc.get(project_id) if card is not None else None
+            if profile is None:
+                return "", None
+            return render_for_drafting(profile, max_chars=3400), card
+        except Exception as exc:  # noqa: BLE001
+            from loguru import logger
+
+            logger.warning(f"[Compiler] webnovel style unavailable for project {project_id}: {exc}")
+            return "", None
 
     def _chapter_brief(self, project_id: int, chapter_number: int, *, participants: Sequence[str], pov: str) -> str:
         """Next Chapter Brief (dangling hooks, due promises, neglected threads). Degradable."""

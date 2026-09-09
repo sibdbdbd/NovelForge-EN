@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 from sqlmodel import Session, select
 
 from app.core.config import settings
@@ -85,6 +85,16 @@ class CreateJobRequest(BaseModel):
     budget: Optional[BudgetSpec] = Field(default=None, description="Hard job limits; 0 = unlimited")
     idempotency_key: Optional[str] = Field(default=None, max_length=64, description="Client-supplied key; repeated identical requests return the existing job")
     preflight_acknowledged: bool = Field(default=False, description="Set when the user confirms starting without a passing preflight")
+    # Webnovel Style Engine (all optional; anything left empty is detected from the brief and the reference fingerprint)
+    platform: Optional[str] = Field(default=None, description="novelpia | munpia | kakaopage | naver_series | royalroad | generic")
+    subgenre: Optional[str] = Field(default=None, description="Subgenre template key (see GET /autonomous/subgenres); 'custom' lets the system decide")
+    perspective: Optional[str] = Field(default=None, description="first_person | third_limited | third_close_alternating")
+    narrator_register: Optional[str] = Field(default=None, validation_alias=AliasChoices("narrator_register", "register"), description="Narrator register: dry_cynical | deadpan_pragmatic | cold_calculating | warm_wry | manic_comic | grim_survivor | sardonic_noble | earnest_underdog")
+    thought_style: Optional[str] = Field(default=None, description="single_quotes | italics | em_dash | plain")
+    status_windows: Optional[bool] = Field(default=None, description="Whether the world has [System] windows")
+    comedy_level: Optional[str] = Field(default=None, description="none | dry | regular | high")
+    directives: List[Dict[str, Any]] = Field(default_factory=list, description="Initial author directives ({scope, chapter_from, chapter_to, kind, text}); applied when the novel project is created")
+    auto_start: bool = Field(default=True, description="Start the pipeline immediately (false = create the job paused for Director edits)")
 
 
 class SelectStorylineRequest(BaseModel):
@@ -191,7 +201,14 @@ async def create_job(req: CreateJobRequest, session: Session = Depends(get_sessi
     data = _decode(req.content_base64)
     filename = safe_filename(req.filename)
     inspect_zip_upload(data, filename)
-    options = {k: v for k, v in req.model_dump(exclude={"filename", "content_base64", "llm_config_id", "mode", "role_llm_config_ids", "budget", "idempotency_key"}).items() if v not in (None, "", {}, False)}
+    options = {k: v for k, v in req.model_dump(exclude={"filename", "content_base64", "llm_config_id", "mode", "role_llm_config_ids", "budget", "idempotency_key", "directives", "auto_start"}).items() if v not in (None, "", {}, False)}
+    # status_windows=False is a real choice (a world without windows); keep it.
+    if req.status_windows is False:
+        options["status_windows"] = False
+    if req.directives:
+        from app.services.autonomous.director import pending_directive
+
+        options["pending_directives"] = [pending_directive(d, index=i + 1) for i, d in enumerate(req.directives[:50]) if str(d.get("text") or "").strip()]
     explicit_craft = options.get("craft_preset")
     options.update(_quality_options(req.quality_preset))
     if explicit_craft:
@@ -204,7 +221,10 @@ async def create_job(req: CreateJobRequest, session: Session = Depends(get_sessi
         job = runner_mod.create_job(session, filename=filename, data=data, llm_config_id=req.llm_config_id, mode=req.mode, options=options, role_llm_config_ids=req.role_llm_config_ids, budget=budget, idempotency_key=req.idempotency_key or idempotency_key)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    autonomous_worker.start(int(job.id))
+    if req.auto_start:
+        autonomous_worker.start(int(job.id))
+    elif job.status == "queued":
+        job = runner_mod.request_pause(session, job)
     return _response(session, job)
 
 
@@ -359,7 +379,159 @@ def report(job_id: int, session: Session = Depends(get_session)):
     job = _job(session, job_id)
     results = job.stage_results or {}
     audit = (results.get("GLOBAL_REPAIR") or {}).get("audit") or results.get("WHOLE_NOVEL_AUDIT") or {}
-    return {"job_id": job.id, "status": job.status, "stage": job.stage, "quality_status": job.quality_status, "quality_summary": job.quality_summary, "audit": {k: v for k, v in audit.items() if k != "findings"}, "findings": (audit.get("findings") or [])[:200], "repair": {k: v for k, v in (results.get("GLOBAL_REPAIR") or {}).items() if k != "audit"}, "ingestion": (results.get("INGEST") or {}).get("quality"), "storylines": results.get("STORYLINE_GENERATION"), "architecture": results.get("NOVEL_ARCHITECTURE"), "budget": budget_mod.usage_snapshot(session, job), "recovery": recovery.history(session, job.id, limit=50), "run": run_summary(session, job)}
+    return {"job_id": job.id, "status": job.status, "stage": job.stage, "quality_status": job.quality_status, "quality_summary": job.quality_summary, "audit": {k: v for k, v in audit.items() if k != "findings"}, "findings": (audit.get("findings") or [])[:200], "repair": {k: v for k, v in (results.get("GLOBAL_REPAIR") or {}).items() if k != "audit"}, "ingestion": (results.get("INGEST") or {}).get("quality"), "storylines": results.get("STORYLINE_GENERATION"), "architecture": results.get("NOVEL_ARCHITECTURE"), "webnovel": audit.get("webnovel"), "style_profile": (results.get("EXPORT") or {}).get("style_profile"), "budget": budget_mod.usage_snapshot(session, job), "recovery": recovery.history(session, job.id, limit=50), "run": run_summary(session, job)}
+
+
+# ------------------------------------------------------------------- Director
+# The author's deep-input channel: steering notes, the Webnovel Style Profile, and "redo chapter N with this note".
+
+class DirectiveRequest(BaseModel):
+    scope: str = Field(default="novel", description="novel | arc | chapter")
+    chapter_from: int = Field(default=0, ge=0)
+    chapter_to: int = Field(default=0, ge=0)
+    kind: str = Field(default="must", description="must | prefer | avoid | idea")
+    text: str = Field(min_length=1, max_length=4000)
+    applies_to: List[str] = Field(default_factory=lambda: ["planning", "drafting"])
+    active: bool = True
+
+
+class DirectivePatch(BaseModel):
+    scope: Optional[str] = None
+    chapter_from: Optional[int] = Field(default=None, ge=0)
+    chapter_to: Optional[int] = Field(default=None, ge=0)
+    kind: Optional[str] = None
+    text: Optional[str] = Field(default=None, max_length=4000)
+    applies_to: Optional[List[str]] = None
+    active: Optional[bool] = None
+
+
+class RedoRequest(BaseModel):
+    from_chapter: int = Field(ge=1, description="First chapter to regenerate; chapters below it are kept")
+    note: Optional[str] = Field(default=None, max_length=4000, description="Author's note for the regenerated chapter (becomes a chapter-scoped directive)")
+    note_kind: str = Field(default="must")
+    replan: bool = Field(default=True, description="Re-plan the blueprint window from this chapter under the note before drafting")
+    discard_texts: bool = Field(default=True)
+    auto_start: bool = Field(default=True, description="Resume generation immediately; false leaves the job paused for more Director edits")
+
+
+@router.get("/subgenres", response_model=List[Dict[str, Any]], summary="Webnovel subgenre templates available to Create Novel")
+def subgenres():
+    from app.services.forge.webnovel.templates import PLATFORM_NOTES, SUBGENRE_LABELS, SUBGENRE_TEMPLATES
+
+    out = []
+    for key, label in SUBGENRE_LABELS.items():
+        t = SUBGENRE_TEMPLATES.get(key)
+        out.append({"key": key, "label": label, "progression_axis": t.engine.progression_axis if t else "", "core_fantasy": t.reader.core_fantasy if t else "", "windows": bool(t.narration.windows_enabled) if t else False, "register": t.narrator_register if t else ""})
+    return out + [{"key": f"platform:{k}", "label": k, "note": v} for k, v in PLATFORM_NOTES.items()]
+
+
+@router.get("/jobs/{job_id}/style", response_model=Dict[str, Any], summary="The job's Webnovel Style Profile (persisted, or detected preview before the project exists)")
+def get_style(job_id: int, session: Session = Depends(get_session)):
+    from app.services.autonomous import director
+
+    return director.get_style_profile(session, _job(session, job_id))
+
+
+@router.patch("/jobs/{job_id}/style", response_model=Dict[str, Any], summary="Edit the Webnovel Style Profile (deep-merge patch); the next chapter compiles against it")
+def patch_style(job_id: int, patch: Dict[str, Any], session: Session = Depends(get_session)):
+    from app.services.autonomous import director
+
+    try:
+        return director.update_style_profile(session, _job(session, job_id), patch)
+    except Exception as exc:  # noqa: BLE001 - validation errors from pydantic
+        raise HTTPException(status_code=400, detail=str(exc)[:600])
+
+
+@router.get("/jobs/{job_id}/style/preview", response_model=Dict[str, str], summary="What the prompts receive: rendered style blocks for drafting, planning and the critic")
+def style_preview(job_id: int, session: Session = Depends(get_session)):
+    from app.schemas.webnovel import WebnovelStyleProfile
+    from app.services.autonomous import director
+    from app.services.forge.webnovel import render_for_critic, render_for_drafting, render_for_planning
+
+    profile = WebnovelStyleProfile.model_validate(director.get_style_profile(session, _job(session, job_id)))
+    return {"drafting": render_for_drafting(profile), "planning": render_for_planning(profile), "critic": render_for_critic(profile)}
+
+
+@router.get("/jobs/{job_id}/directives", response_model=List[Dict[str, Any]], summary="Author directives (novel / arc / chapter scoped steering notes)")
+def list_directives(job_id: int, session: Session = Depends(get_session)):
+    from app.services.autonomous import director
+
+    return director.list_directives(session, _job(session, job_id))
+
+
+@router.post("/jobs/{job_id}/directives", response_model=Dict[str, Any], summary="Add an author directive; it reaches every planning/drafting prompt it applies to from now on")
+def add_directive(job_id: int, req: DirectiveRequest, session: Session = Depends(get_session)):
+    from app.services.autonomous import director
+
+    try:
+        return director.add_directive(session, _job(session, job_id), req.model_dump())
+    except (director.DirectorError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)[:600])
+
+
+@router.patch("/jobs/{job_id}/directives/{directive_id}", response_model=Dict[str, Any], summary="Edit an author directive")
+def patch_directive(job_id: int, directive_id: str, req: DirectivePatch, session: Session = Depends(get_session)):
+    from app.services.autonomous import director
+
+    try:
+        return director.update_directive(session, _job(session, job_id), directive_id, {k: v for k, v in req.model_dump().items() if v is not None})
+    except (director.DirectorError, ValueError) as exc:
+        raise HTTPException(status_code=404 if "not found" in str(exc).lower() else 400, detail=str(exc)[:600])
+
+
+@router.delete("/jobs/{job_id}/directives/{directive_id}", response_model=Dict[str, Any], summary="Remove an author directive")
+def delete_directive(job_id: int, directive_id: str, session: Session = Depends(get_session)):
+    from app.services.autonomous import director
+
+    ok = director.remove_directive(session, _job(session, job_id), directive_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Directive not found")
+    return {"removed": directive_id}
+
+
+@router.get("/jobs/{job_id}/redo/plan", response_model=Dict[str, Any], summary="Preview what redoing from a chapter would discard")
+def redo_plan(job_id: int, from_chapter: int, session: Session = Depends(get_session)):
+    from app.services.autonomous import director
+
+    try:
+        return director.redo_plan(session, _job(session, job_id), from_chapter)
+    except director.DirectorError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/jobs/{job_id}/redo", response_model=JobResponse, summary="Redo from chapter N with an author note: rewind canon, discard chapters >= N, replan, requeue at the chapter loop")
+async def redo(job_id: int, req: RedoRequest, session: Session = Depends(get_session)):
+    from app.services.autonomous import director
+
+    job = _job(session, job_id)
+    if job.status == "running":
+        # Pause first so the worker releases the stage cleanly; the redo then requeues.
+        autonomous_worker.stop(int(job.id))
+        job = runner_mod.request_pause(session, job)
+    try:
+        director.redo_from_chapter(session, job, from_chapter=req.from_chapter, note=req.note, note_kind=req.note_kind, replan=req.replan, discard_texts=req.discard_texts)
+    except director.DirectorError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    session.refresh(job)
+    if req.auto_start:
+        autonomous_worker.start(int(job.id))
+    else:
+        job = runner_mod.request_pause(session, job)
+    return _response(session, job)
+
+
+@router.get("/jobs/{job_id}/chapters/{chapter_number}/quality", response_model=Dict[str, Any], summary="Per-chapter craft report: critic scores, webnovel conformance, passes")
+def chapter_quality(job_id: int, chapter_number: int, session: Session = Depends(get_session)):
+    from app.db.models import ChapterPipelineRun
+
+    job = _job(session, job_id)
+    if not job.original_project_id:
+        raise HTTPException(status_code=404, detail="No novel project yet")
+    row = session.exec(select(ChapterPipelineRun).where(ChapterPipelineRun.project_id == int(job.original_project_id), ChapterPipelineRun.chapter_number == chapter_number, ChapterPipelineRun.status == "committed").order_by(ChapterPipelineRun.id.desc())).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Chapter not committed")
+    craft = (row.validation_report or {}).get("craft") or {}
+    return {"chapter": chapter_number, "run_id": row.id, "model_calls": row.model_calls, "repair_attempts": row.repair_attempts, "validation_passed": (row.validation_report or {}).get("passed"), "style": row.style_report, "critic_before": craft.get("critic_before"), "critic_after": craft.get("critic_after"), "webnovel_before": craft.get("webnovel_before"), "webnovel_after": craft.get("webnovel_after"), "passes": craft.get("passes"), "hook_after": craft.get("hook_after"), "mode": craft.get("mode")}
 
 
 __all__ = ["router"]

@@ -7,7 +7,7 @@ bookkeeping out of the LLM schema with ``x-ai-exclude``.
 
 from __future__ import annotations
 
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -152,6 +152,9 @@ class CraftReport(BaseModel):
     model_calls: int = 0
     accepted: bool = True
     reasons: List[str] = Field(default_factory=list)
+    # Webnovel Conformance scorecards (deterministic) before / after the passes; None when the project has no style profile.
+    webnovel_before: Optional[Dict[str, Any]] = None
+    webnovel_after: Optional[Dict[str, Any]] = None
 
 
 __all__ = [

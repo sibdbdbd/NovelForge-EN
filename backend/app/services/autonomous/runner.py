@@ -31,7 +31,7 @@ import json
 import socket
 import uuid
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from loguru import logger
 from sqlmodel import Session, select
@@ -292,6 +292,77 @@ class JobRunner:
             opts.setdefault("target_chapters", job.chapter_count)
         return render_charter(charter_from_job_options(opts, reference_title=self._reference_title(job), job_id=job.id), consumer=consumer)
 
+    def _apply_director_state(self, job: AutonomousNovelJob) -> None:
+        """Directives and a style-profile edit made before the project existed are parked on the job; apply them once."""
+        try:
+            from app.services.autonomous import director
+
+            director.apply_style_override(self.session, job)
+            director.apply_pending_directives(self.session, job)
+        except Exception as exc:  # noqa: BLE001 - author notes must never break the stage
+            self.session.rollback()
+            logger.warning(f"[Autonomous] director state not applied for job {job.id}: {exc}")
+
+    # --------------------------------------------------------------- style
+    def _source_fingerprint(self, job: AutonomousNovelJob) -> Optional[Dict[str, Any]]:
+        if not job.source_project_id:
+            return None
+        try:
+            from app.services.bible.bible_service import BibleService
+
+            card = BibleService(self.session).singleton(int(job.source_project_id), "Narrative Fingerprint")
+            return card.content if card is not None and isinstance(card.content, dict) else None
+        except Exception:  # noqa: BLE001 - cosmetic for detection
+            return None
+
+    def _source_scene_functions(self, job: AutonomousNovelJob) -> List[str]:
+        if not job.source_project_id:
+            return []
+        try:
+            from app.services.forge.corpus import load_source_chapters
+
+            out: List[str] = []
+            for ch in load_source_chapters(self.session, int(job.source_project_id)):
+                for s in (ch.analysis or {}).get("scenes") or []:
+                    if isinstance(s, dict) and s.get("function"):
+                        out.append(str(s["function"]))
+            return out[:400]
+        except Exception:  # noqa: BLE001
+            return []
+
+    def _style_profile(self, job: AutonomousNovelJob):
+        """The job's Webnovel Style Profile: persisted on the original project once it exists, detected on the fly before that."""
+        from app.services.forge.webnovel import WebnovelStyleService, detect_profile
+
+        opts = dict(job.options or {})
+        brief = str(opts.get("summary") or "")
+        wpc = opts.get("words_per_chapter")
+        kwargs = dict(options=opts, brief=brief, fingerprint=self._source_fingerprint(job), source_scene_functions=self._source_scene_functions(job), source_genre_hint=str(opts.get("genre") or ""), words_per_chapter=int(wpc) if wpc else None)
+        if job.original_project_id:
+            profile = WebnovelStyleService(self.session).ensure(int(job.original_project_id), commit=True, **kwargs)
+            return profile
+        # Before the project exists an author edit made through the Director wins over detection.
+        from app.services.autonomous import director
+
+        return director.style_override_profile(job) or detect_profile(**kwargs)
+
+    def _style_blocks(self, job: AutonomousNovelJob) -> Tuple[str, str]:
+        """(genre engine block for planning, novel-wide author directives block)."""
+        from app.services.forge.webnovel import DirectiveService, render_for_planning
+
+        try:
+            engine = render_for_planning(self._style_profile(job))
+        except Exception as exc:  # noqa: BLE001 - never block planning on the style engine
+            logger.warning(f"[Autonomous] style profile unavailable for job {job.id}: {exc}")
+            engine = ""
+        directives = ""
+        if job.original_project_id:
+            try:
+                directives = DirectiveService(self.session).render(int(job.original_project_id), chapter=None, consumer="planning")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"[Autonomous] directives unavailable for job {job.id}: {exc}")
+        return engine, directives
+
     # --------------------------------------------------------------- stages
     async def _run_stage(self, job: AutonomousNovelJob, stage: str) -> Dict[str, Any]:
         client = self._client(job)
@@ -316,7 +387,8 @@ class JobRunner:
         if stage == "EXAMPLE_LIBRARY_BUILD":
             return src.stage_example_library(self.session, self._source_ctx(job, client))
         if stage == "STORYLINE_GENERATION":
-            return await story_mod.stage_storyline_generation(self.session, job_id=job.id, source_project_id=int(job.source_project_id), client=client, preferences=self._preferences(job), count=int(opts.get("storyline_count") or story_mod.TARGET_OPTIONS), charter_text=self._charter_text(job, consumer="storylines"))
+            engine_text, _ = self._style_blocks(job)
+            return await story_mod.stage_storyline_generation(self.session, job_id=job.id, source_project_id=int(job.source_project_id), client=client, preferences=self._preferences(job), count=int(opts.get("storyline_count") or story_mod.TARGET_OPTIONS), charter_text=self._charter_text(job, consumer="storylines"), genre_engine_text=engine_text)
         if stage == "STORYLINE_SELECTION":
             if not job.selected_storyline_id or not job.chapter_count:
                 raise fail.StageFailure(fail.USER_INPUT_REQUIRED, "Select a storyline and a chapter count")
@@ -330,9 +402,11 @@ class JobRunner:
                 self._publish(original_project_id=pid)
                 job = self.job
             self._ensure_charter(job)
+            self._apply_director_state(job)
             profile = story_mod.source_profile(self.session, int(job.source_project_id))
             charter_text = self._charter_text(job, consumer="architecture")
-            return await arch_mod.stage_novel_architecture(self.session, original_project_id=int(job.original_project_id), source_project_id=int(job.source_project_id), storyline=self._storyline(job), chapter_count=job.chapter_count, client=client, brief=story_mod.source_brief(self.session, int(job.source_project_id), preferences=self._preferences(job), charter_text=charter_text), preferences=self._preferences(job), profile=profile, charter_text=charter_text)
+            engine_text, directives_text = self._style_blocks(job)
+            return await arch_mod.stage_novel_architecture(self.session, original_project_id=int(job.original_project_id), source_project_id=int(job.source_project_id), storyline=self._storyline(job), chapter_count=job.chapter_count, client=client, brief=story_mod.source_brief(self.session, int(job.source_project_id), preferences=self._preferences(job), charter_text=charter_text), preferences=self._preferences(job), profile=profile, charter_text=charter_text, genre_engine_text=engine_text, directives_text=directives_text)
         if stage == "BIBLE_BUILD":
             return arch_mod.stage_bible_build(self.session, original_project_id=int(job.original_project_id), chapter_count=job.chapter_count, storyline=self._storyline(job))
         if stage == "CHAPTER_PLAN_BUILD":
@@ -341,7 +415,11 @@ class JobRunner:
             return chapter_plan.stage_preflight(self.session, project_id=int(job.original_project_id), chapter_count=job.chapter_count)
         if stage == "CHAPTER_GENERATION_LOOP":
             word_target = chapter_plan.words_per_chapter(opts, job.chapter_count)
-            return await chapter_loop.generate_next_chapter(self.session, project_id=int(job.original_project_id), chapter_count=job.chapter_count, client=client, options=opts, word_target=word_target, budget_chars=int(opts.get("budget_chars") or 16000), lease_check=self._check_lease)
+            replan_before = (job.stage_results or {}).get("replan_from")
+            out = await chapter_loop.generate_next_chapter(self.session, project_id=int(job.original_project_id), chapter_count=job.chapter_count, client=client, options=opts, word_target=word_target, budget_chars=int(opts.get("budget_chars") or 16000), lease_check=self._check_lease, replan_before=int(replan_before) if replan_before else None)
+            if replan_before and out.get("chapter") and int(out["chapter"]) >= int(replan_before):
+                out["consumed_replan_from"] = int(replan_before)
+            return out
         if stage == "WHOLE_NOVEL_AUDIT":
             return audit_mod.whole_novel_audit(self.session, int(job.original_project_id), job.chapter_count)
         if stage == "GLOBAL_REPAIR":
@@ -452,6 +530,8 @@ class JobRunner:
             if result.get("chapter"):
                 loop[str(result["chapter"])] = {k: v for k, v in result.items() if k != "complete"}
             results[stage] = loop
+            if result.get("consumed_replan_from"):
+                results.pop("replan_from", None)
             fields["chapters_committed"] = int(result.get("chapter") or job.chapters_committed)
             if result.get("deviation", {}).get("accepted_warnings"):
                 fields["warnings"] = (job.warnings or []) + [{"stage": stage, "chapter": result["chapter"], "warnings": result["deviation"]["accepted_warnings"]}]

@@ -137,6 +137,60 @@ def build_text(meta: Dict[str, str], chapters: Sequence[Tuple[int, str, str]]) -
     return "\n".join(parts)
 
 
+# ------------------------------------------------------------ webnovel formats
+def episode_label(n: int, title: str, style: str) -> str:
+    """Chapter heading in the profile's title convention."""
+    t = (title or "").strip()
+    if t.lower().startswith(("chapter ", "episode ", "ch ")):
+        t = t.split("·", 1)[-1].strip() if "·" in t else t
+    if style == "numbered_only":
+        return f"Chapter {n}"
+    if style == "episode":
+        return f"Episode {n}" + (f" — {t}" if t and not t.lower().startswith(("chapter", "episode")) else "")
+    if style == "title_only" and t:
+        return t
+    if t and not t.lower().startswith(("chapter", "episode")):
+        return f"Chapter {n} — {t}"
+    return f"Chapter {n}"
+
+
+def teaser_for(text: str, *, max_chars: int = 220) -> str:
+    """The final line of a chapter as the 'next episode' teaser (webnovel table-of-contents convention)."""
+    paras = [p.strip() for p in split_paragraphs(text) if p.strip()]
+    if not paras:
+        return ""
+    last = paras[-1]
+    return last if len(last) <= max_chars else last[: max_chars - 1].rstrip() + "…"
+
+
+def build_webnovel_text(meta: Dict[str, str], chapters: Sequence[Tuple[int, str, str]], *, title_style: str = "numbered_with_title", author_notes: Optional[Dict[int, str]] = None) -> str:
+    """Platform-ready plain text: one episode per block, heading, body, optional author's note, separator.
+
+    Mobile-first: paragraphs are separated by blank lines exactly as written (the profile already
+    produced one-line paragraphs); no indentation, no justified blocks.
+    """
+    out = [meta["title"], f"by {meta['author']}", "", "=" * 40, ""]
+    for n, title, text in chapters:
+        out += [episode_label(n, title, title_style), "", text.strip(), ""]
+        note = (author_notes or {}).get(n)
+        if note:
+            out += ["— Author's note —", note.strip(), ""]
+        out += ["-" * 40, ""]
+    return "\n".join(out)
+
+
+def build_toc(meta: Dict[str, str], chapters: Sequence[Tuple[int, str, str]], *, title_style: str = "numbered_with_title") -> str:
+    """Table of contents with one-line teasers (the last line of each episode)."""
+    lines = [f"# {meta['title']} — Table of Contents", ""]
+    for n, title, text in chapters:
+        words = measure(text).unit_count
+        lines.append(f"- **{episode_label(n, title, title_style)}** · {words:,} words")
+        tz = teaser_for(text)
+        if tz:
+            lines.append(f"  > {tz}")
+    return "\n".join(lines)
+
+
 def synopsis_and_guide(session: Session, project_id: int) -> Tuple[str, str]:
     bible = BibleService(session)
     foundation = _c(bible.singleton(project_id, "Story Foundation"))
@@ -180,23 +234,38 @@ def _store(session: Session, job: AutonomousNovelJob, project_id: int, kind: str
 
 def stage_export(session: Session, *, job: AutonomousNovelJob, project_id: int, audit: Dict[str, Any]) -> Dict[str, Any]:
     meta = book_metadata(session, project_id, job)
-    chapters = [(n, str(_c(card).get("title") or f"Chapter {n}"), text) for n, card, text in chapter_texts(session, project_id)]
-    if not chapters:
+    raw_chapters = [(n, str(_c(card).get("title") or f"Chapter {n}"), text) for n, card, text in chapter_texts(session, project_id)]
+    if not raw_chapters:
         raise ValueError("No chapter texts to export")
+    # Webnovel Style Profile drives chapter headings and the platform text format.
+    title_style = "numbered_with_title"
+    style_summary: Dict[str, Any] = {}
+    try:
+        from app.services.forge.webnovel import WebnovelStyleService
+
+        profile = WebnovelStyleService(session).get(project_id)
+        if profile is not None:
+            title_style = profile.narration.chapter_title_style
+            style_summary = {"platform": profile.platform, "subgenre": profile.engine.subgenre, "perspective": profile.perspective, "register": profile.narrator_register, "derived_from": profile.derived_from}
+    except Exception:  # noqa: BLE001 - export must not depend on the style engine
+        pass
+    chapters = [(n, episode_label(n, t, title_style), x) for n, t, x in raw_chapters]
     slug = _slug(meta["title"])
     synopsis, guide = synopsis_and_guide(session, project_id)
-    quality = {"version": EXPORT_VERSION, "audit": {k: v for k, v in audit.items() if k != "findings"}, "findings": audit.get("findings", [])[:200], "chapters": [{"chapter": n, "title": t, "words": measure(x).unit_count} for n, t, x in chapters], "total_words": sum(measure(x).unit_count for _, _, x in chapters), "originality": audit.get("originality"), "unresolved_warnings": [f for f in audit.get("findings", []) if f.get("severity") in ("medium", "low")][:100], "run": run_summary(session, job)}
+    quality = {"version": EXPORT_VERSION, "audit": {k: v for k, v in audit.items() if k != "findings"}, "findings": audit.get("findings", [])[:200], "chapters": [{"chapter": n, "title": t, "words": measure(x).unit_count} for n, t, x in chapters], "total_words": sum(measure(x).unit_count for _, _, x in chapters), "originality": audit.get("originality"), "webnovel": audit.get("webnovel"), "style_profile": style_summary, "unresolved_warnings": [f for f in audit.get("findings", []) if f.get("severity") in ("medium", "low")][:100], "run": run_summary(session, job)}
     artifacts = [
         _store(session, job, project_id, "epub", f"{slug}.epub", "application/epub+zip", build_epub(meta, chapters, front_matter=str((job.options or {}).get("front_matter") or ""), back_matter=str((job.options or {}).get("back_matter") or ""))),
         _store(session, job, project_id, "docx", f"{slug}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", build_docx(meta, chapters)),
         _store(session, job, project_id, "markdown", f"{slug}.md", "text/markdown; charset=utf-8", build_markdown(meta, chapters).encode("utf-8")),
         _store(session, job, project_id, "text", f"{slug}.txt", "text/plain; charset=utf-8", build_text(meta, chapters).encode("utf-8")),
+        _store(session, job, project_id, "webnovel_text", f"{slug}-episodes.txt", "text/plain; charset=utf-8", build_webnovel_text(meta, raw_chapters, title_style=title_style).encode("utf-8")),
+        _store(session, job, project_id, "toc", f"{slug}-toc.md", "text/markdown; charset=utf-8", build_toc(meta, raw_chapters, title_style=title_style).encode("utf-8")),
         _store(session, job, project_id, "synopsis", f"{slug}-synopsis.md", "text/markdown; charset=utf-8", synopsis.encode("utf-8")),
         _store(session, job, project_id, "character_guide", f"{slug}-characters.md", "text/markdown; charset=utf-8", guide.encode("utf-8")),
         _store(session, job, project_id, "report", f"{slug}-quality-report.json", "application/json", json.dumps(quality, ensure_ascii=False, indent=1, default=str).encode("utf-8")),
     ]
     session.commit()
-    return {"artifacts": [{"id": a.id, "kind": a.kind, "filename": a.filename, "size_bytes": a.size_bytes} for a in artifacts], "total_words": quality["total_words"], "chapters": len(chapters)}
+    return {"artifacts": [{"id": a.id, "kind": a.kind, "filename": a.filename, "size_bytes": a.size_bytes} for a in artifacts], "total_words": quality["total_words"], "chapters": len(chapters), "style_profile": style_summary}
 
 
-__all__ = ["EXPORT_VERSION", "book_metadata", "build_docx", "build_epub", "build_markdown", "build_text", "run_summary", "stage_export", "synopsis_and_guide"]
+__all__ = ["EXPORT_VERSION", "book_metadata", "build_docx", "build_epub", "build_markdown", "build_text", "build_toc", "build_webnovel_text", "episode_label", "run_summary", "stage_export", "synopsis_and_guide", "teaser_for"]

@@ -374,7 +374,7 @@ def test_05_audit_export_and_reports(client, fake, state):
         assert not [f for f in audit["findings"] if f["kind"].startswith("source_")]
         exp = job.stage_results["EXPORT"]
         kinds = {a["kind"] for a in exp["artifacts"]}
-        assert {"epub", "docx", "markdown", "text", "report", "synopsis", "character_guide"} <= kinds
+        assert {"epub", "docx", "markdown", "text", "report", "synopsis", "character_guide", "webnovel_text", "toc"} <= kinds
         epub = s.exec(select(ExportArtifact).where(ExportArtifact.job_id == job.id, ExportArtifact.kind == "epub")).first()
         with zipfile.ZipFile(io.BytesIO(epub.data)) as zf:
             names = zf.namelist()
@@ -394,7 +394,7 @@ def test_05_audit_export_and_reports(client, fake, state):
     r = client.get(f"/api/autonomous/jobs/{state['job_id']}/storylines", params={"include_rejected": True})
     assert r.status_code == 200 and len(r.json()) == 8 and sum(1 for o in r.json() if o["rejected"]) >= 2
     r = client.get(f"/api/autonomous/jobs/{state['job_id']}/artifacts")
-    assert r.status_code == 200 and len(r.json()) == 7
+    assert r.status_code == 200 and len(r.json()) == 9
     art = next(a for a in r.json() if a["kind"] == "epub")
     r = client.get(f"/api/autonomous/artifacts/{art['id']}/download")
     assert r.status_code == 200 and r.headers["content-type"].startswith("application/epub+zip") and r.content[:2] == b"PK"
