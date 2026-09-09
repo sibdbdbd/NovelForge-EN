@@ -82,6 +82,29 @@ not need participants, so it is assembled even when the chapter has no entity
 list yet. The continuation dialog exposes both toggles and shows how much of
 the book is currently remembered.
 
+### Forge pipeline (autonomous runs and the Forge panel)
+
+The Forge context compiler (`app/services/forge/compiler.py`) is the production
+drafting path, and it now consumes Story Memory directly:
+
+- **`story_so_far`** — a mandatory compiled section built from the Chapter
+  Digests (`StorySoFarCompiler`) covering every digested chapter before the one
+  being written. Digest cards are listed in the compiled context's included
+  cards with their revisions, so a run is reproducible.
+- **`previous_summary`** — the older Next Chapter State Packet recap is kept
+  only for chapters the memory has *not* digested (always including the
+  previous chapter, whose packet is still required). When every chapter is
+  digested this shrinks to the previous chapter alone.
+- **`chapter_brief`** — the Next Chapter Brief (must / should / avoid) compiled
+  from the digests and ledgers for the chapter's participants and POV.
+
+Both memory pieces degrade gracefully: if there are no digests or compilation
+fails, the compiler falls back to the state-packet recap and logs a warning.
+
+The autonomous chapter loop **digests every committed chapter** as it goes
+(`digest_extractor` model-client role), so a fully automatic run at chapter 200
+is drafting with a whole-book memory rather than the last ten summaries.
+
 ## 4. Continuity Guard
 
 `POST /api/story-memory/continuity/check` runs deterministic checks on a draft
