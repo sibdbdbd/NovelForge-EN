@@ -257,6 +257,11 @@ def create_default_card_types(session: Session) -> None:
         # Story Memory (per-chapter digests + settings).
         "Chapter Digest": {"is_singleton": False, "is_ai_enabled": False, "description": "Compact structured memory of one written chapter: events, state changes, hooks, knowledge deltas and ending state; compiled into the Story So Far block for generation", "default_ai_context_template": None},
         "Story Memory Settings": {"is_singleton": True, "is_ai_enabled": False, "description": "Per-project Story Memory settings: auto-digest, recap windows and budgets, continuation injection", "default_ai_context_template": None},
+        # Story Charter: the author's requirements, open choices and boundaries; rendered into every planning and generation prompt.
+        "Story Charter": {"is_singleton": True, "is_ai_enabled": False, "description": "Author requirements (fixed / preferred), deliberately open choices and content boundaries; the source of truth for what the author asked for", "default_ai_context_template": None},
+        # Webnovel Style Engine: the novel's Korean-webnovel identity and the author's steering notes.
+        "Webnovel Style Profile": {"is_singleton": True, "is_ai_enabled": False, "description": "Platform, subgenre engine, narration conventions (inner speech, windows, SFX, address), reward cadence and chapter shape; rendered into every drafting, critic and planning prompt and measured by Webnovel Conformance", "default_ai_context_template": None},
+        "Author Directives": {"is_singleton": True, "is_ai_enabled": False, "description": "The author's steering notes scoped to the whole novel, an arc or a single chapter; injected into planning and drafting prompts next to the Story Charter", "default_ai_context_template": None},
     }
 
     # Default AI parameter presets per type (does not include llm_config_id)
@@ -302,6 +307,9 @@ def create_default_card_types(session: Session) -> None:
         "Source Analysis Record": None,
         "Chapter Digest": None,
         "Story Memory Settings": None,
+        "Story Charter": None,
+        "Webnovel Style Profile": None,
+        "Author Directives": None,
     }
 
     # Mapping from type name to built-in response model (used directly to generate json_schema)
@@ -346,6 +354,11 @@ def create_default_card_types(session: Session) -> None:
         # Story Memory
         "Chapter Digest": "ChapterDigest",
         "Story Memory Settings": "StoryMemorySettings",
+        # Story Charter
+        "Story Charter": "StoryCharter",
+        # Webnovel Style Engine
+        "Webnovel Style Profile": "WebnovelStyleProfile",
+        "Author Directives": "DirectiveBook",
     }
 
     overwrite_card_schemas = settings.bootstrap.should_overwrite_card_schemas

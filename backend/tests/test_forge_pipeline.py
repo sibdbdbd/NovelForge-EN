@@ -536,3 +536,100 @@ def test_reference_examples_improve_style_adherence(client, state):
     assert style_report(copied, fp)["adherence_score"] >= 0.8
     issues, rep = validate_originality(copied, profile, allowed=["Nadia Quill"])
     assert rep["passed"] is False and any(i.severity == "critical" for i in issues)
+
+
+# ================================================ Story Charter + Story Memory inside the compiled context
+def test_charter_is_a_mandatory_section_and_reaches_draft_and_repair(client, state):
+    """The author's requirements are compiled into every chapter prompt (draft and repair), ahead of everything else."""
+    from app.db.session import engine
+    from app.services.forge.pipeline import PipelineOptions, run_chapter
+
+    opid = state["original_pid"]
+    charter = {
+        "working_title": "Ledger of Debts", "brief": "A quiet clerk story.",
+        "requirements": [
+            {"id": "req-1", "text": "Nadia never begs and never explains herself twice", "category": "protagonist", "strength": "must", "scope": "characters"},
+            {"id": "req-2", "text": "Dry humour in the narration", "category": "prose", "strength": "prefer", "scope": "prose"},
+            {"id": "req-3", "text": "The finale reveals the courier without a duel", "category": "ending", "strength": "must", "scope": "ending"},
+        ],
+        "open_choices": [{"id": "open-1", "topic": "whether Teo is loyal", "decide_by": "author"}],
+        "boundaries": [{"id": "no-1", "text": "No torture scenes", "severity": "hard"}],
+    }
+    r = client.put("/api/story-charter", json={"project_id": opid, "charter": charter})
+    assert r.status_code == 200, r.text
+    r = client.post("/api/forge/chapters/compile", json={"project_id": opid, "chapter_number": 2})
+    assert r.status_code == 200, r.text
+    ctx = r.json()
+    sections = {s["key"]: s for s in ctx["sections"]}
+    assert "story_charter" in sections and sections["story_charter"]["mandatory"] is True
+    assert ctx["sections"][0]["key"] == "story_charter"  # first thing the model reads
+    text = sections["story_charter"]["text"]
+    assert "[req-1]" in text and "[req-2]" in text and "[open-1]" in text and "[no-1]" in text
+    assert "[req-3]" not in text  # ending-scope requirement is for planners, not this chapter's drafter
+    assert any("[charter no-1] No torture scenes" in p for p in ctx["fact_classes"]["prohibited"])
+    assert any(i["card_type"] == "Story Charter" for i in ctx["manifest"]["included_cards"])
+    # Draft + repair prompts carry the charter; the system prompts come from the Prompt table.
+    drafter = FakeDrafter(faults={"unsupported": True})
+    with Session(engine) as s:
+        res = asyncio.run(run_chapter(s, project_id=opid, chapter_number=2, drafter=drafter, options=PipelineOptions(max_repairs=1)))
+    assert res.status == "committed", res.error
+    draft_call, repair_call = drafter.calls[0], drafter.calls[1]
+    assert "[STORY CHARTER" in draft_call["user_prompt"] and "[req-1]" in draft_call["user_prompt"]
+    assert "STORY CHARTER" in draft_call["system_prompt"] and "[OUTPUT CONTRACT" in draft_call["system_prompt"]
+    assert "KOREAN WEBNOVEL STYLE" not in draft_call["user_prompt"]  # subgenre directives no longer hardcoded
+    assert "[STORY CHARTER" in repair_call["user_prompt"] and "Continuity repair editor" in repair_call["system_prompt"]
+    # Regenerating chapter 2 keeps the previous text as a server-side revision.
+    with Session(engine) as s:
+        res2 = asyncio.run(run_chapter(s, project_id=opid, chapter_number=2, drafter=FakeDrafter(), options=PipelineOptions(max_repairs=1, regenerate=True)))
+    assert res2.status == "committed", res2.error
+    revs = client.get(f"/api/cards/{res2.chapter_card_id}/revisions").json()
+    assert revs and revs[0]["reason"] == "pipeline_regenerate" and revs[0]["actor"] == "ai" and revs[0]["chapter_number"] == 2
+
+
+def test_story_memory_replaces_state_packets_in_the_compiled_recap(client, state):
+    """Once a chapter has a digest, the compiler injects Story So Far and the Next Chapter Brief; undigested chapters keep their packets."""
+    from app.schemas.story_memory import ChapterDigest
+
+    opid = state["original_pid"]
+    # No digests yet: chapter 3 compiles from state packets only.
+    r = client.post("/api/forge/chapters/compile", json={"project_id": opid, "chapter_number": 3})
+    assert r.status_code == 200, r.text
+    keys = {s["key"] for s in r.json()["sections"]}
+    assert "previous_summary" in keys and "story_so_far" not in keys
+    # Store a digest for chapter 1 (as the autonomous loop or the editor would).
+    digest = ChapterDigest(
+        chapter_number=1, title="Rivets 1", pov="Nadia Quill", participants=["Nadia Quill", "Teo Marsh"], locations=["Harrow Quay"], story_time="night", one_line="Nadia keeps watch and refuses to go below.",
+        summary="Nadia counts rivets, deflects Teo about the Archive, and refuses to go below when the quay goes dark.", ending_state="Nadia stands under the last lamp on Harrow Quay with Teo; she refuses to go below.",
+        events=[{"summary": "Nadia deflects Teo's question about the Archive", "participants": ["Nadia Quill", "Teo Marsh"], "significance": "notable"}],
+        state_changes=[{"entity": "Nadia Quill", "kind": "possession", "before": "", "after": "carries the brass token", "permanent": True}],
+        hooks_opened=[{"hook": "Who raised the harbor chain?", "hook_type": "question", "strength": "strong", "expected_payoff_window": "next chapter"}],
+        dominant_function="setup", tension_end=7, hook_strength=7,
+    ).model_dump(mode="json")
+    from app.db.session import engine
+    from app.services.story_memory.digest_service import DigestService
+
+    with Session(engine) as s:
+        DigestService(s).save_digest(opid, ChapterDigest.model_validate(digest), commit=True)
+    r = client.post("/api/forge/chapters/compile", json={"project_id": opid, "chapter_number": 3})
+    assert r.status_code == 200, r.text
+    ctx = r.json()
+    sections = {s["key"]: s for s in ctx["sections"]}
+    assert "story_so_far" in sections and sections["story_so_far"]["mandatory"] is True
+    assert "Who raised the harbor chain?" in sections["story_so_far"]["text"] and "brass token" in sections["story_so_far"]["text"]
+    # Chapter 2 has no digest, so its state packet is still in the recap; chapter 1's packet is no longer needed there.
+    assert "Chapter 2 Summary" in sections["previous_summary"]["text"] and "Chapter 1 Summary" not in sections["previous_summary"]["text"]
+    assert "chapter_brief" in sections and "harbor chain" in sections["chapter_brief"]["text"]
+    assert any(i["card_type"] == "Chapter Digest" for i in ctx["manifest"]["included_cards"])
+    # Memory is degradable: a broken digest card never blocks compilation.
+    from app.db.models import Card
+
+    with Session(engine) as s:
+        card = DigestService(s).find_digest_card(opid, 1)
+        card.content = {"chapter_number": 1, "broken": True}
+        s.add(card)
+        s.commit()
+    r = client.post("/api/forge/chapters/compile", json={"project_id": opid, "chapter_number": 3})
+    assert r.status_code == 200, r.text
+    with Session(engine) as s:
+        s.delete(DigestService(s).find_digest_card(opid, 1))
+        s.commit()

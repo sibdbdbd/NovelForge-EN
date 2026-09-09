@@ -31,7 +31,7 @@ from app.services.forge import firewall as fw
 from app.services.forge import provenance
 from app.services.forge import validators as v
 from app.services.forge.compiler import ChapterContextCompiler
-from app.services.forge.pipeline import REPAIR_SYSTEM_PROMPT, build_repair_prompt, source_profile_for, validate_draft
+from app.services.forge.pipeline import build_repair_prompt, resolve_prompts, source_profile_for, validate_draft
 from app.services.forge.textmetrics import measure, split_paragraphs, split_sentences, tokenize
 
 AUDIT_VERSION = "whole-novel-audit-1"
@@ -230,6 +230,57 @@ def originality_audit(session: Session, project_id: int, chapters: Sequence[Tupl
     return findings, {"passed": rep.passed, "scores": rep.scores}
 
 
+def webnovel_audit(session: Session, project_id: int, chapters: Sequence[Tuple[int, Card, str]]) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """Whole-book Webnovel Conformance: per-chapter scorecards, reward droughts, ending-hook streaks, rhythm drift.
+
+    Advisory by design (medium/low): a chapter that reads slightly less like Novelpia is not a
+    continuity error. The summary is exported in the quality report so the author can see the
+    curve; chapters that fall below the floor are listed for a targeted polish.
+    """
+    try:
+        from app.services.forge.webnovel import WebnovelStyleService, measure_conformance
+    except Exception:  # noqa: BLE001
+        return [], {}
+    profile = WebnovelStyleService(session).get(project_id)
+    if profile is None or not chapters:
+        return [], {}
+    findings: List[Dict[str, Any]] = []
+    cards: List[Dict[str, Any]] = []
+    drought = 0
+    worst_drought = 0
+    drought_start = 0
+    soft_streak = 0
+    for n, card, text in chapters:
+        c = measure_conformance(text, profile)
+        cards.append({"chapter": n, "overall": c.overall, "scores": c.scores, "passed": c.passed, "micro_payoffs": c.metrics.get("micro_payoffs", 0), "hook_strength": c.metrics.get("hook_strength", 0)})
+        if c.overall < 5.5:
+            findings.append(_finding("webnovel_conformance_low", "medium", f"Chapter {n} reads least like the target webnovel style ({c.overall}/10): " + "; ".join(f.code for f in c.findings[:4]), chapter=n))
+        if float(c.metrics.get("micro_payoffs", 0) or 0) < 1:
+            drought += 1
+            if drought == 1:
+                drought_start = n
+            if drought > worst_drought:
+                worst_drought = drought
+            if drought == profile.reader.reward_gap_max_chapters + 1:
+                findings.append(_finding("reward_drought", "medium", f"Chapters {drought_start}-{n}: {drought} consecutive chapters without a detectable reader reward (limit {profile.reader.reward_gap_max_chapters})", chapters=list(range(drought_start, n + 1))))
+        else:
+            drought = 0
+        if float(c.metrics.get("hook_strength", 0) or 0) < 4:
+            soft_streak += 1
+            if soft_streak == 3:
+                findings.append(_finding("soft_ending_streak", "medium", f"Three consecutive chapters ending without a real hook, up to chapter {n}", chapter=n))
+        else:
+            soft_streak = 0
+    overall = round(sum(x["overall"] for x in cards) / len(cards), 2)
+    dims: Dict[str, float] = {}
+    for x in cards:
+        for k, v in (x["scores"] or {}).items():
+            dims[k] = dims.get(k, 0.0) + float(v)
+    dims = {k: round(v / len(cards), 2) for k, v in dims.items()}
+    below = [x["chapter"] for x in cards if x["overall"] < 6.5]
+    return findings, {"profile": {"platform": profile.platform, "subgenre": profile.engine.subgenre, "perspective": profile.perspective, "register": profile.narrator_register}, "overall": overall, "dimensions": dims, "chapters": cards, "below_floor": below[:100], "worst_reward_drought": worst_drought}
+
+
 def whole_novel_audit(session: Session, project_id: int, chapter_count: int) -> Dict[str, Any]:
     chapters = chapter_texts(session, project_id)
     fingerprint = _c(BibleService(session).singleton(project_id, "Narrative Fingerprint"))
@@ -242,9 +293,11 @@ def whole_novel_audit(session: Session, project_id: int, chapter_count: int) -> 
     findings += character_audit(session, project_id, chapters)
     orig, orig_scores = originality_audit(session, project_id, chapters)
     findings += orig
+    web, web_summary = webnovel_audit(session, project_id, chapters)
+    findings += web
     counts = Counter(f["severity"] for f in findings)
     blocking = [f for f in findings if f["severity"] in ("critical", "high")]
-    return {"version": AUDIT_VERSION, "chapters": len(chapters), "words": sum(measure(t).unit_count for _, _, t in chapters), "findings": findings, "counts": dict(counts), "blocking": len(blocking), "passed": not blocking, "originality": orig_scores}
+    return {"version": AUDIT_VERSION, "chapters": len(chapters), "words": sum(measure(t).unit_count for _, _, t in chapters), "findings": findings, "counts": dict(counts), "blocking": len(blocking), "passed": not blocking, "originality": orig_scores, "webnovel": web_summary}
 
 
 # ------------------------------------------------------------ global repair
@@ -297,7 +350,8 @@ async def global_repair(session: Session, *, project_id: int, chapter_count: int
             session.rollback()
         except Exception as exc:  # noqa: BLE001 - compile for an already committed chapter should work; report otherwise
             raise fail.StageFailure(fail.STALE_DEPENDENCY, f"Cannot recompile chapter {n} for global repair: {exc}")
-        raw = await client.text(role="whole_novel_editor", system_prompt=REPAIR_SYSTEM_PROMPT, user_prompt=build_repair_prompt(ctx, text, issues), prompt_version=GLOBAL_REPAIR_PROMPT_VERSION, stage=f"GLOBAL_REPAIR:ch{n}")
+        _, repair_prompt = resolve_prompts(session)
+        raw = await client.text(role="whole_novel_editor", system_prompt=repair_prompt.text, user_prompt=build_repair_prompt(ctx, text, issues), prompt_version=repair_prompt.version, stage=f"GLOBAL_REPAIR:ch{n}")
         check()
         prose, model_claims = claims_mod.split_prose_and_claims(raw)
         report, all_claims, model_claims = validate_draft(session, ctx, raw, profile=profile, fingerprint=fingerprint)
@@ -306,6 +360,9 @@ async def global_repair(session: Session, *, project_id: int, chapter_count: int
             persist(cp)
             continue  # keep the original; the finding stays in the report
         c = _c(card)
+        from app.services import revision_service
+
+        revision_service.snapshot_before_overwrite(session, card, reason="global_repair", actor="ai", note=f"issues: {', '.join(i.code for i in issues)[:200]}")
         c.setdefault("revisions", []).append({"replaced_at": datetime.now().isoformat(timespec="seconds"), "reason": "global_repair", "issues": [i.code for i in issues], "previous_hash": provenance.content_hash(text)})
         c["content"] = prose
         c["sync_status"] = "pending"

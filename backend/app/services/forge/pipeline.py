@@ -18,7 +18,10 @@ import json
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Awaitable, Callable, Dict, Iterable, List, Optional, Protocol, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, Iterable, List, Optional, Protocol, Sequence, Tuple
+
+if TYPE_CHECKING:  # pragma: no cover
+    from app.services.ai.prompt_registry import ResolvedPrompt
 
 from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import Session, select
@@ -38,26 +41,30 @@ from app.services.forge.corpus import load_source_chapters
 from app.services.forge.craft import CraftInputs, CraftOptions, craft_chapter
 from app.services.forge.textmetrics import infer_pov, measure
 
-PIPELINE_VERSION = "pipeline-1"
-DRAFT_PROMPT_VERSION = "forge-draft-1"
-REPAIR_PROMPT_VERSION = "forge-repair-1"
+PIPELINE_VERSION = "pipeline-2"
+# Legacy labels kept for provenance readers; live runs record the Prompt-table version (see prompt_registry).
+DRAFT_PROMPT_VERSION = "forge-draft-2"
+REPAIR_PROMPT_VERSION = "forge-repair-2"
 
-DRAFT_SYSTEM_PROMPT = (
-    "You are the drafting engine of an original serialized novel. You receive a compiled context with clearly labelled sections. "
-    "Obey the fact classes exactly: LOCKED CANON may be used but not changed; only PLANNED beats may happen and only in order; PROHIBITED facts must never surface; "
-    "FLEXIBLE details may be invented but must not persist; UNKNOWN facts stay unknown. Keep the explicit POV for the whole chapter. Preserve each character's voice rules. "
-    "REFERENCE TECHNIQUE EXAMPLES demonstrate technique only: their names, places, events and sentences are not part of this story and must not be reproduced or paraphrased. "
-    "Write only original prose that matches the NARRATIVE FINGERPRINT targets. Output the chapter body only (no title, no notes). "
-    "After the prose, output the continuity metadata:\n"
-    "1. <chapter_summary> block containing a comprehensive summary of core events, climax, and status changes.\n"
-    "2. <scene_handoff> block with: ending_location, current_time, present_characters, unresolved_action, open_dialogue.\n"
-    "3. Optional <claims>{json}</claims> block with: claims (list of {kind, subject, value, evidence})."
+# Output contract the pipeline parses. Appended to the Workshop-editable prompt so an edit can never break parsing.
+DRAFT_OUTPUT_CONTRACT = (
+    "[OUTPUT CONTRACT — fixed by the application]\n"
+    "Output the chapter body only (no title, no notes). Immediately after the prose, output:\n"
+    "1. a <chapter_summary> block: a comprehensive summary of core events, climax and status changes;\n"
+    "2. a <scene_handoff> block with: ending_location, current_time, present_characters, unresolved_action, open_dialogue;\n"
+    "3. optionally a <claims>{json}</claims> block with: claims (list of {kind, subject, value, evidence})."
 )
-REPAIR_SYSTEM_PROMPT = (
-    "You repair specific failed spans of a chapter draft. Rewrite ONLY the listed spans so that every listed issue is resolved. Do not add any new fact, entity, "
-    "location, item, injury, relationship change or knowledge. Do not paraphrase reference examples. Keep the POV and the surrounding prose intact. "
-    "Return the complete corrected chapter body followed by the same <claims>{json}</claims> block format."
+REPAIR_OUTPUT_CONTRACT = (
+    "[OUTPUT CONTRACT — fixed by the application]\n"
+    "Return the complete corrected chapter body followed by the same <chapter_summary>, <scene_handoff> and (when present) <claims>{json}</claims> blocks."
 )
+
+
+def resolve_prompts(session: Session) -> Tuple["ResolvedPrompt", "ResolvedPrompt"]:
+    """(draft, repair) system prompts from the Prompt table with the code-owned output contracts appended."""
+    from app.services.ai.prompt_registry import PROMPT_DRAFT, PROMPT_REPAIR, system_prompt
+
+    return system_prompt(session, PROMPT_DRAFT).with_contract(DRAFT_OUTPUT_CONTRACT), system_prompt(session, PROMPT_REPAIR).with_contract(REPAIR_OUTPUT_CONTRACT)
 
 
 class Drafter(Protocol):
@@ -189,15 +196,11 @@ def validate_draft(session: Session, ctx: CompiledChapterContext, prose: str, *,
 
 
 def build_draft_prompt(ctx: CompiledChapterContext) -> str:
+    """User prompt = the compiled context + the output shape. Craft directives live in the 'Forge - Chapter Draft' prompt."""
     return (
         ctx.prompt_text()
-        + "\n\n[KOREAN WEBNOVEL STYLE & PACING DIRECTIVES]\n"
-        "- Breathing Room & Pacing: Do not rush through beats like an obstacle course. Let scenes breathe. Give each beat ample sensory detail, dialogue, and inner reaction (typically 400-600 words per beat).\n"
-        "- Dual-Layer Internal Monologue vs. Spoken Dialogue: The protagonist's spoken dialogue should remain measured, aristocratic, or composed, while their internal monologue is sharp, analytical, cynical, or humorous about their absurd circumstances. Contrast outer composure with inner calculation.\n"
-        "- Misunderstanding & Tension Dynamics: Side characters frequently misread the protagonist's silence, exhaustion, or pragmatic caution as unfathomable genius, hidden power, or deep schematics.\n"
-        "- Visual Paragraph Flow: Avoid monolithic walls of text. Webnovel formatting favors 1-3 sentence paragraphs, crisp dialogue spacing, and punchy narrative beats optimized for serialized reading.\n\n"
-        "[OUTPUT REQUIREMENTS]\n"
-        "Write the complete chapter now in original, immersive webnovel prose.\n\n"
+        + "\n\n[OUTPUT REQUIREMENTS]\n"
+        f"Write the complete chapter now (target about {ctx.word_target} words) in original, immersive serialized prose, honouring the STORY CHARTER first, then the plan, canon and knowledge boundaries.\n\n"
         "Immediately after the prose, provide the chapter summary and scene handoff blocks:\n"
         "<chapter_summary>\n"
         f"# Chapter {ctx.chapter_number} Summary\n"
@@ -217,7 +220,7 @@ def build_draft_prompt(ctx: CompiledChapterContext) -> str:
 
 
 def build_repair_prompt(ctx: CompiledChapterContext, prose: str, issues: List[v.Issue]) -> str:
-    lines = ["[CONSTRAINTS — unchanged]", ctx.sections_text_for(("pov", "pov_knowledge_boundary", "anti_hallucination", "originality", "prohibited", "beats")), "", "[FAILED SPANS AND REQUIRED FIXES]"]
+    lines = ["[CONSTRAINTS — unchanged]", ctx.sections_text_for(("story_charter", "pov", "pov_knowledge_boundary", "anti_hallucination", "originality", "prohibited", "beats")), "", "[FAILED SPANS AND REQUIRED FIXES]"]
     for i, issue in enumerate(issues, start=1):
         span = f"chars {issue.span[0]}-{issue.span[1]}: «{prose[issue.span[0]:issue.span[1]][:160]}»" if issue.span and issue.span[0] >= 0 else "(whole chapter)"
         lines.append(f"{i}. [{issue.layer}/{issue.code}] {issue.message} — {span}\n   fix: {issue.hint}")
@@ -245,6 +248,9 @@ def _upsert_chapter_text(session: Session, project_id: int, ctx: CompiledChapter
     if existing is None:
         card = CardService(session).create(CardCreate(title=f"Chapter {ctx.chapter_number}: {content['title']}"[:200], content=content, card_type_id=ct.id, parent_id=outline.parent_id if outline else None), project_id, commit=False)
     else:
+        from app.services import revision_service
+
+        revision_service.snapshot_before_overwrite(session, existing, reason="pipeline_regenerate", actor="ai", note=f"before pipeline commit of chapter {ctx.chapter_number}", new_content={**_c(existing), **content})
         existing.content = {**_c(existing), **content}
         flag_modified(existing, "content")
         session.add(existing)
@@ -293,10 +299,23 @@ def craft_inputs_for(session: Session, ctx: CompiledChapterContext) -> CraftInpu
     location = ""
     if prev_scene.startswith("location: "):
         location = prev_scene.split(";")[0].replace("location: ", "").strip()
+    # Webnovel Style Engine inputs: the stored profile and the author's directives for this chapter (both degradable).
+    style_profile = None
+    directives_text = ""
+    try:
+        from app.services.forge.webnovel.service import DirectiveService, WebnovelStyleService
+
+        style_profile = WebnovelStyleService(session).get(ctx.project_id)
+        directives_text = DirectiveService(session).render(ctx.project_id, chapter=ctx.chapter_number, consumer="drafting")
+    except Exception as exc:  # noqa: BLE001 - style inputs never block a chapter
+        from loguru import logger
+
+        logger.warning(f"[Pipeline] webnovel style inputs unavailable for project {ctx.project_id}: {exc}")
     return CraftInputs(
         pov=ctx.pov, participants=list(ctx.participants), beats=beats, word_target=int(ctx.word_target or 2500),
         closing_hook=str(oc.get("closing_hook") or ""), location=location if location and location != "None" else "",
         cards_by_name=cards_by_name, relationships=relationships, knowledge_gaps=gaps,
+        style_profile=style_profile, author_directives=directives_text,
     )
 
 
@@ -353,7 +372,8 @@ async def run_chapter(
     craft_report: Dict[str, Any] = {}
     try:
         _finish(session, row, stage="draft")
-        draft_system, draft_user = DRAFT_SYSTEM_PROMPT, build_draft_prompt(ctx)
+        draft_prompt, repair_prompt = resolve_prompts(session)
+        draft_system, draft_user = draft_prompt.text, build_draft_prompt(ctx)
 
         async def _single_shot() -> str:
             return await drafter(role="drafting", system_prompt=draft_system, user_prompt=draft_user, context=ctx)
@@ -380,7 +400,7 @@ async def run_chapter(
             attempts += 1
             _finish(session, row, stage=f"repair-{attempts}", repair_attempts=attempts)
             prose_only, _ = claims_mod.split_prose_and_claims(prose)
-            repaired = await drafter(role="repair", system_prompt=REPAIR_SYSTEM_PROMPT, user_prompt=build_repair_prompt(ctx, prose_only, report.blocking), context=ctx)
+            repaired = await drafter(role="repair", system_prompt=repair_prompt.text, user_prompt=build_repair_prompt(ctx, prose_only, report.blocking), context=ctx)
             model_calls += 1
             prose = repaired
             report, all_claims, model_claims = validate_draft(session, ctx, prose, profile=profile, fingerprint=fingerprint, style_max_failed=opts.style_max_failed)
@@ -447,4 +467,4 @@ class LLMDrafter:
         return str(content)
 
 
-__all__ = ["DRAFT_PROMPT_VERSION", "DRAFT_SYSTEM_PROMPT", "PIPELINE_VERSION", "REPAIR_PROMPT_VERSION", "CraftOptions", "Drafter", "LLMDrafter", "PipelineOptions", "PipelineResult", "build_draft_prompt", "build_repair_prompt", "craft_inputs_for", "run_chapter", "source_profile_for", "validate_draft"]
+__all__ = ["DRAFT_OUTPUT_CONTRACT", "DRAFT_PROMPT_VERSION", "PIPELINE_VERSION", "REPAIR_OUTPUT_CONTRACT", "REPAIR_PROMPT_VERSION", "CraftOptions", "Drafter", "LLMDrafter", "PipelineOptions", "PipelineResult", "build_draft_prompt", "build_repair_prompt", "craft_inputs_for", "resolve_prompts", "run_chapter", "source_profile_for", "validate_draft"]

@@ -15,7 +15,9 @@
     "preferences": "Optional preferences",
     "pref": {
       "genre": "Genre", "genre_intensity": "Genre intensity", "content_rating": "Content rating", "ending_preference": "Ending preference", "romance_level": "Romance level",
-      "words_per_chapter": "Words per chapter", "target_chapters": "Target chapters (approx.)", "storyline_count": "Storyline options", "title": "Working title", "author": "Author name", "notes": "Notes for the ideator",
+      "words_per_chapter": "Words per chapter", "target_chapters": "Target chapters (approx.)", "storyline_count": "Storyline options", "title": "Working title", "author": "Author name", "notes": "Additional requirements",
+      "notes_placeholder": "Anything the novel must honour that the brief does not already say; becomes a fixed requirement.",
+      "leaveOpen": "Leave open",
       "protagonist_name": "Main character name", "protagonist_placeholder": "e.g. Lucen Rooke",
       "summary": "Basic novel premise / summary", "summary_placeholder": "e.g. A corporate accountant transmigrates into an indebted noble heir and uses forensic ledger analysis...",
       "tags": "Tags / Tropes", "tags_placeholder": "e.g. Transmigration, Academy, Economics, Politics",
@@ -26,6 +28,13 @@
         "moderate": "Moderate (25–35% similarity — balanced thematic homage)",
         "close": "Close (35–45% similarity — parallel arc beats)"
       }
+    },
+    "prefNote": "Everything you fill in here becomes a fixed requirement in the novel's Story Charter. Anything you leave empty stays an open choice the planner may decide — nothing is silently defaulted.",
+    "brief": {
+      "title": "Describe the novel you want",
+      "hint": "A sentence or several pages — protagonist, world, progression, relationships, tone, themes, structure, boundaries, length, ending, and what you want to leave open.",
+      "placeholder": "e.g. A disgraced court accountant discovers the empire's magic runs on debt. I want a scheming, dry-humoured protagonist who wins with ledgers before swords, a visible power tier system, no love triangle, chapters that end on hooks. I have not decided the ending or whether the mentor survives.",
+      "charterNote": "Your brief and preferences are saved as the project's Story Charter: visible and editable in the Novel Bible, and sent to every planning and chapter prompt so requirements do not fade after the first chapters."
     },
     "rightsNotice": "Only manuscripts you have the right to analyse are processed. The reference's names, settings, scenes, twists and wording are never reused; only abstract structural qualities inform the new novel.",
     "startAnalysis": "Start analysis",
@@ -87,14 +96,41 @@
     "noChaptersYet": "No chapter committed yet",
     "finishedTitle": "Your novel is ready",
     "finishedSubtitle": "{chapters} chapters, {words} words, validated for continuity, plan adherence, prose and originality.",
-    "kinds": { "epub": "EPUB", "docx": "DOCX", "markdown": "Markdown", "text": "Plain text", "synopsis": "Synopsis", "character_guide": "Character guide", "report": "Quality report (JSON)" },
+    "kinds": { "epub": "EPUB", "docx": "DOCX", "markdown": "Markdown", "text": "Plain text", "webnovel_text": "Webnovel text (episodes)", "toc": "Table of contents", "synopsis": "Synopsis", "character_guide": "Character guide", "report": "Quality report (JSON)" },
     "qualitySummary": "Quality",
     "originalitySummary": "Originality",
     "runSummary": "Run",
-    "q": { "blocking": "Blocking findings", "repairs": "Automatic chapter repairs" },
+    "q": { "blocking": "Blocking findings", "repairs": "Automatic chapter repairs", "webnovel": "Webnovel conformance (avg)", "rewardDrought": "Longest reward drought (chapters)" },
     "o": { "passed": "Whole-manuscript firewall passed" },
     "r": { "calls": "Model calls", "input": "Input tokens", "output": "Output tokens", "warnings": "Accepted warnings" },
     "findings": "{n} audit findings",
-    "openProject": "Open the generated project (advanced)"
+    "openProject": "Open the generated project (advanced)",
+    "director": "Director",
+    "directorHint": "Steer the style profile, add standing notes, or redo a chapter with a note.",
+    "webnovel": {
+      "title": "Korean webnovel style",
+      "hint": "The novel is written in English with the conventions of a top-tier Korean webnovel: one-line rhythm, dense inner speech, status windows where the world has them, a face-slap reward cadence and a hook in the last line of every chapter. Leave anything on \"let the engine decide\" and it is detected from your brief and the reference; set it and it becomes law for every chapter.",
+      "auto": "Let the engine decide",
+      "platform": "Target platform",
+      "subgenre": "Subgenre template",
+      "subgenreHint": "Sets the progression engine: what grows, the tier ladder, what counts as a win, the world hooks that manufacture episodes.",
+      "perspective": "Perspective",
+      "register": "Narrator register",
+      "thoughtStyle": "Inner speech marking",
+      "statusWindows": "Status / system windows",
+      "windows": { "auto": "Let the engine decide", "on": "Yes — this world has windows", "off": "No — no windows in this world" },
+      "comedyLevel": "Comedy level",
+      "comedy": { "none": "None", "dry": "Dry", "regular": "Regular", "high": "High" },
+      "directives": "Standing directives (optional)",
+      "directivesHint": "Notes in your own words that reach every planning and drafting prompt. One per line; scope them to arcs or chapters later in the Director.",
+      "directivesPlaceholder": "The protagonist never begs.\nRank-ups are earned on the page, never off-screen.\nNo love triangle.",
+      "autoStart": "Start the pipeline immediately",
+      "autoStartHint": "Off: the job is created paused so you can edit the style profile and directives in the Director before analysis starts.",
+      "platforms": { "novelpia": "Novelpia", "munpia": "Munpia", "kakaopage": "KakaoPage", "naver_series": "Naver Series", "royalroad": "RoyalRoad", "generic": "Generic serial" },
+      "perspectives": { "first_person": "First person", "third_limited": "Third person, limited", "third_close_alternating": "Third person, close, alternating" },
+      "registers": { "dry_cynical": "Dry, cynical", "deadpan_pragmatic": "Deadpan, pragmatic", "cold_calculating": "Cold, calculating", "warm_wry": "Warm, wry", "manic_comic": "Manic, comic", "grim_survivor": "Grim survivor", "sardonic_noble": "Sardonic noble", "earnest_underdog": "Earnest underdog" },
+      "thoughtStyles": { "single_quotes": "'Single quotes' (Korean webnovel standard)", "italics": "Italics", "em_dash": "Em-dash asides", "plain": "Plain narration" },
+      "summary": "Style: {platform} · {subgenre} · {perspective} · {register}"
+    }
   }
 }

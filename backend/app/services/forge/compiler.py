@@ -35,6 +35,7 @@ from app.services.forge.fingerprint import compact_fingerprint
 from app.services.forge.textmetrics import sha256_text, split_paragraphs, tokenize
 from app.services.forge.claims import _CAP_NAME
 from app.services.forge.validators import _PROHIBITED_STOP
+from app.services.story_charter import CharterService, render_charter
 
 COMPILER_VERSION = provenance.COMPILER_VERSION
 
@@ -127,6 +128,7 @@ class ChapterContextCompiler:
     def __init__(self, session: Session):
         self.session = session
         self.bible = BibleService(session)
+        self.charter = CharterService(session)
 
     # ------------------------------------------------------------------ lookups
     def _outline(self, project_id: int, chapter_number: int, outline_card_id: Optional[int]) -> Card:
@@ -177,7 +179,7 @@ class ChapterContextCompiler:
             return
         if manifest is None or manifest.latest_committed_chapter < chapter_number - 1:
             raise ContextCompileError("previous_chapter_not_synchronized", f"Chapter {chapter_number - 1} has not been committed and synchronized (latest committed: {manifest.latest_committed_chapter if manifest else 0})")
-        prev_run = self.session.exec(select(ChapterPipelineRun).where(ChapterPipelineRun.project_id == project_id, ChapterPipelineRun.chapter_number == chapter_number - 1).order_by(ChapterPipelineRun.id.desc())).first()
+        prev_run = self.session.exec(select(ChapterPipelineRun).where(ChapterPipelineRun.project_id == project_id, ChapterPipelineRun.chapter_number == chapter_number - 1, ChapterPipelineRun.status != "superseded").order_by(ChapterPipelineRun.id.desc())).first()
         if prev_run is not None and prev_run.status not in ("committed",):
             raise ContextCompileError("previous_chapter_not_synchronized", f"Latest pipeline run for chapter {chapter_number - 1} ended in status '{prev_run.status}'")
 
@@ -273,6 +275,28 @@ class ChapterContextCompiler:
 
         def include(card: Card, why: str) -> None:
             included.append({"card_id": card.id, "card_type": getattr(card.card_type, "name", ""), "title": card.title, "revision": _rev(card), "reason": why})
+
+        # 0. Story Charter — the author's requirements outrank everything below (mandatory when a charter exists).
+        charter_card = self.charter.card(project_id)
+        charter = self.charter.get(project_id) if charter_card is not None else None
+        charter_text = render_charter(charter, consumer="draft", max_chars=3200)
+        if charter_text and charter is not None:
+            sections.append(Section("story_charter", "STORY CHARTER — the author's requirements (fixed requirements outrank every other section)", charter_text, mandatory=True, card_ids=[charter_card.id], revisions=[_rev(charter_card)], priority=0))
+            include(charter_card, "story charter")
+            fact_classes["prohibited"] += [f"[charter {b.id}] {b.text}" for b in charter.boundaries]
+
+        # 0b. Author Directives for this chapter (the author's live steering; same authority as the charter).
+        directives_text, directive_card = self._author_directives(project_id, chapter_number)
+        if directives_text and directive_card is not None:
+            sections.append(Section("author_directives", f"AUTHOR DIRECTIVES — steering notes that apply to chapter {chapter_number} (same authority as the Story Charter)", directives_text, mandatory=True, card_ids=[directive_card.id], revisions=[_rev(directive_card)], priority=0))
+            include(directive_card, "author directives")
+
+        # 0c. Webnovel Style Profile: how the prose must read (conventions, rewards, ending discipline).
+        style_text, style_card = self._webnovel_style(project_id)
+        if style_text:
+            sections.append(Section("webnovel_style", "WEBNOVEL STYLE — platform conventions this chapter must read by (outranks the fingerprint where they disagree)", style_text, mandatory=True, card_ids=[style_card.id] if style_card else [], revisions=[_rev(style_card)] if style_card else [], priority=2))
+            if style_card is not None:
+                include(style_card, "webnovel style profile")
 
         # 1-2. Reader Contract, Story Foundation (mandatory)
         contract = self.bible.singleton(project_id, "Reader Contract")
@@ -541,36 +565,46 @@ class ChapterContextCompiler:
         if events:
             sections.append(Section("timeline", "RECENT CANONICAL TIMELINE", "\n".join(e[1] for e in events[-6:]), priority=28))
 
-        # 20-22. Previous chapter summary, rolling 10-chapter window, bounded tail, scene state (from the state packet)
+        # 20-22. Story So Far (tiered digests) + state-packet recap for undigested chapters, bounded tail, scene state
         packet = self._state_packet(project_id, prev_chapter)
         if chapter_number > 1:
             if packet is None:
                 raise ContextCompileError("state_packet_missing", f"Next Chapter State Packet for chapter {prev_chapter} is missing; synchronize chapter {prev_chapter} first")
 
-            # Rolling 10-chapter sliding window: max(1, chapter_number - 10) to prev_chapter
+            memory = self._story_memory(project_id, chapter_number)
+            digested = set(memory["digested"]) if memory else set()
+            if memory and memory["text"]:
+                sections.append(Section("story_so_far", f"STORY SO FAR — whole-book memory (chapters {memory['first']}–{prev_chapter}; recent in detail, older compressed)", memory["text"], mandatory=True, card_ids=memory["card_ids"], revisions=memory["revisions"], priority=9))
+                for cid, rev in zip(memory["card_ids"], memory["revisions"]):
+                    included.append({"card_id": cid, "card_type": "Chapter Digest", "title": f"digest {rev}", "revision": rev, "reason": "story so far"})
+
+            # State packets cover chapters the memory has not digested (always the previous chapter when it is undigested).
             start_ch = max(1, chapter_number - 10)
             summary_sections: List[str] = []
             summary_card_ids: List[int] = []
             summary_revisions: List[str] = []
-
             for ch in range(start_ch, chapter_number):
+                if ch in digested and ch != prev_chapter:
+                    continue
                 p_card = self._state_packet_card(project_id, ch)
                 p = _c(p_card) if p_card else (packet if ch == prev_chapter else None)
                 if p_card is not None:
                     summary_card_ids.append(p_card.id)
                     summary_revisions.append(_rev(p_card))
                     include(p_card, f"chapter {ch} state packet")
-
                 ch_summary = (p.get("summary") if p else "") or ""
                 if ch_summary:
                     summary_sections.append(f"### Chapter {ch} Summary:\n{ch_summary.strip()}")
-
             if not summary_sections and packet.get("summary"):
                 summary_sections.append(f"### Chapter {prev_chapter} Summary:\n{str(packet.get('summary')).strip()}")
-
             recap_text = "\n\n".join(summary_sections)
-            title = f"CHRONOLOGICAL NOVEL RECAP (CHAPTERS {start_ch}–{prev_chapter})" if start_ch < prev_chapter else f"PREVIOUS CHAPTER {prev_chapter} SUMMARY"
+            covered = [ch for ch in range(start_ch, chapter_number) if ch not in digested or ch == prev_chapter]
+            title = f"CHRONOLOGICAL NOVEL RECAP (CHAPTERS {covered[0]}–{prev_chapter})" if covered and covered[0] < prev_chapter else f"PREVIOUS CHAPTER {prev_chapter} SUMMARY"
             sections.append(Section("previous_summary", title, recap_text, mandatory=True, card_ids=summary_card_ids, revisions=summary_revisions, priority=9))
+
+            brief_text = self._chapter_brief(project_id, chapter_number, participants=resolved, pov=pov_name)
+            if brief_text:
+                sections.append(Section("chapter_brief", "NEXT CHAPTER BRIEF — what this chapter must address, should consider and must avoid (derived from memory and ledgers)", brief_text, priority=17))
 
             prev_text_card = self._chapter_text_card(project_id, prev_chapter)
             if prev_text_card is not None:
@@ -697,6 +731,83 @@ class ChapterContextCompiler:
             if int(_c(card).get("chapter_number") or 0) == int(chapter_number):
                 return card
         return None
+
+    def _story_memory(self, project_id: int, chapter_number: int) -> Optional[Dict[str, Any]]:
+        """Story So Far compiled from Chapter Digests. Degradable: returns None when there are no digests or memory fails."""
+        try:
+            from app.services.story_memory.digest_service import DigestService
+            from app.services.story_memory.story_so_far import StorySoFarCompiler
+
+            digest_cards = [c for c in DigestService(self.session).digest_cards(project_id) if 0 < int(_c(c).get("chapter_number") or 0) < chapter_number]
+            if not digest_cards:
+                return None
+            recap = StorySoFarCompiler(self.session).compile(project_id, next_chapter=chapter_number)
+            if not recap.text:
+                return None
+            digest_cards.sort(key=lambda c: int(_c(c).get("chapter_number") or 0))
+            return {"text": recap.text, "digested": list(recap.digested_chapters), "first": min(recap.digested_chapters) if recap.digested_chapters else 1, "card_ids": [c.id for c in digest_cards], "revisions": [_rev(c) for c in digest_cards]}
+        except Exception as exc:  # noqa: BLE001 - memory must never block generation
+            from loguru import logger
+
+            logger.warning(f"[Compiler] Story So Far unavailable for project {project_id} ch.{chapter_number}: {exc}")
+            return None
+
+    def _author_directives(self, project_id: int, chapter_number: int) -> Tuple[str, Optional[Card]]:
+        """Rendered author directives that apply to this chapter. Degradable."""
+        try:
+            from app.services.forge.webnovel.service import DirectiveService
+
+            svc = DirectiveService(self.session)
+            card = svc.card(project_id)
+            if card is None:
+                return "", None
+            return svc.render(project_id, chapter=chapter_number, consumer="drafting", max_chars=2400), card
+        except Exception as exc:  # noqa: BLE001 - steering notes must never block generation
+            from loguru import logger
+
+            logger.warning(f"[Compiler] author directives unavailable for project {project_id} ch.{chapter_number}: {exc}")
+            return "", None
+
+    def _webnovel_style(self, project_id: int) -> Tuple[str, Optional[Card]]:
+        """Rendered Webnovel Style Profile for drafting (stored profile, else genre-neutral defaults). Degradable."""
+        try:
+            from app.services.forge.webnovel.render import render_for_drafting
+            from app.services.forge.webnovel.service import WebnovelStyleService
+
+            svc = WebnovelStyleService(self.session)
+            card = svc.card(project_id)
+            profile = svc.get(project_id) if card is not None else None
+            if profile is None:
+                return "", None
+            return render_for_drafting(profile, max_chars=3400), card
+        except Exception as exc:  # noqa: BLE001
+            from loguru import logger
+
+            logger.warning(f"[Compiler] webnovel style unavailable for project {project_id}: {exc}")
+            return "", None
+
+    def _chapter_brief(self, project_id: int, chapter_number: int, *, participants: Sequence[str], pov: str) -> str:
+        """Next Chapter Brief (dangling hooks, due promises, neglected threads). Degradable."""
+        try:
+            from app.services.story_memory.planner import NextChapterPlanner
+
+            brief = NextChapterPlanner(self.session).brief(project_id, chapter_number=chapter_number, participants=list(participants), pov=pov)
+            lines: List[str] = []
+            if brief.must_address:
+                lines.append("MUST address:\n" + "\n".join(f"- {i.text}" for i in brief.must_address if i.kind not in ("outline_beats", "outline")))
+            if brief.should_consider:
+                lines.append("SHOULD consider:\n" + "\n".join(f"- {i.text}" for i in brief.should_consider if i.kind != "allowed_outcome"))
+            if brief.avoid:
+                lines.append("AVOID:\n" + "\n".join(f"- {i.text}" for i in brief.avoid if i.kind not in ("prohibited_knowledge", "forbidden_outcome")))
+            if brief.rhythm_advice:
+                lines.append("Rhythm:\n" + "\n".join(f"- {r}" for r in brief.rhythm_advice))
+            text = "\n\n".join(l for l in lines if l.split("\n", 1)[-1].strip())
+            return _trim(text, 3000)
+        except Exception as exc:  # noqa: BLE001
+            from loguru import logger
+
+            logger.warning(f"[Compiler] Next Chapter Brief unavailable for project {project_id} ch.{chapter_number}: {exc}")
+            return ""
 
 
 

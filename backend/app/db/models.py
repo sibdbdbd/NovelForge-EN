@@ -435,6 +435,34 @@ class ArtifactProvenance(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.now, nullable=False)
 
 
+class CardRevision(SQLModel, table=True):
+    """Server-side snapshot of a card's content taken *before* an overwrite.
+
+    Written for every Chapter Text overwrite (editor save, pipeline commit /
+    regenerate, global repair) and for Bible cards changed by the system, so a
+    failed model response, a bad regenerate or an unwanted "accept" never costs
+    the author their previous text. Not a full VCS: bounded per card
+    (``settings.data_safety.max_revisions_per_card``), oldest pruned first.
+    """
+
+    __table_args__ = (sa.Index("ix_cardrevision_card_created", "card_id", "created_at"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    card_id: int = Field(index=True)
+    project_id: int = Field(index=True)
+    card_type_name: str = Field(default="", index=True)
+    title: str = Field(default="")
+    content: Any = Field(default={}, sa_column=Column(JSON))
+    content_hash: str = Field(default="", index=True)
+    # Why the snapshot was taken: user_save | pipeline_commit | pipeline_regenerate | global_repair | bible_sync | bible_update | ai_generation | restore | manual
+    reason: str = Field(default="user_save", index=True)
+    actor: str = Field(default="user")  # user | ai | system
+    chapter_number: Optional[int] = Field(default=None, index=True)
+    word_count: int = Field(default=0)
+    note: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.now, nullable=False)
+
+
 class ProjectManifest(SQLModel, table=True):
     """Project Narrative Manifest: the single authoritative revision record."""
 

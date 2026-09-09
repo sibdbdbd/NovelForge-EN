@@ -29,20 +29,11 @@ from app.services.forge import firewall as fw
 from app.services.forge.fingerprint import compact_fingerprint
 from app.services.forge.textmetrics import tokenize
 
-STORYLINE_PROMPT_VERSION = "autonomous-storylines-1"
+STORYLINE_PROMPT_VERSION = "autonomous-storylines-1"  # legacy label; live runs record the Prompt-table version
 MIN_OPTIONS = 5
 TARGET_OPTIONS = 7
 MAX_PAIRWISE_SIMILARITY = 0.45
 DIVERSITY_FIELDS = ("setting", "protagonist", "central_conflict", "antagonist", "relationship_arc", "central_mystery", "climax", "ending_type")
-
-SYSTEM_PROMPT = (
-    "You are a storyline ideator for an original novel. You receive an abstract Narrative Fingerprint and entity-free mechanisms learned from a reference novel. "
-    "Your options must relate to the reference ONLY through genre, audience appeal, emotional experience, pacing, beat architecture, tension/reveal pattern, "
-    "character-role functions, high-level themes and structural mechanisms. They must NOT reuse the reference's names, setting identifiers, distinctive objects, "
-    "scene sequence, unique twists, specific relationships, proprietary terminology, memorable phrases or close plot correspondence. "
-    "Every option must differ from every other option in setting, protagonist occupation/role, core conflict, antagonist mechanism, relationship configuration, "
-    "central mystery, climax mechanism and ending type. Output must validate against the schema."
-)
 
 
 def _c(card) -> Dict[str, Any]:
@@ -95,8 +86,14 @@ def source_profile(session: Session, source_project_id: int) -> Optional[fw.Sour
     return fw.SourceProfile.from_chapters(chapters, manuscript_id=chapters[0].manuscript_id, entity_names=names + locations + objects, scene_summaries=summaries, beat_sequence=beats, character_roles=roles, locations=locations, objects=objects)
 
 
-def source_brief(session: Session, source_project_id: int, *, preferences: Dict[str, Any]) -> str:
-    """Abstract, entity-free description of the source that the ideator may see."""
+def source_brief(session: Session, source_project_id: int, *, preferences: Dict[str, Any], charter_text: str = "", genre_engine_text: str = "") -> str:
+    """Abstract, entity-free description of the source that the ideator may see, plus the author's Story Charter.
+
+    ``charter_text`` is the rendered Story Charter (see ``story_charter.render_charter``). When it is
+    present it is the only source of author requirements; the raw preference dump is used only for
+    jobs created before the charter existed. ``genre_engine_text`` is the rendered Webnovel Style
+    Profile for planning (progression axis, reward types, arc shape) and is appended when present.
+    """
     bible = BibleService(session)
     fp = _c(bible.singleton(source_project_id, "Narrative Fingerprint"))
     genome = _c(bible.singleton(source_project_id, "Narrative Genome"))
@@ -114,6 +111,22 @@ def source_brief(session: Session, source_project_id: int, *, preferences: Dict[
         lines.append(", ".join(f"stage {s.get('stage_number')}: {round(100 * (int(s.get('chapter_end') or 0) - int(s.get('chapter_start') or 1) + 1) / total)}%" for s in stages[:16]))
         lines.append(f"Source stage count: {len(stages)}; chapters: {total}")
     prefs = {k: v for k, v in preferences.items() if v not in (None, "", [], {})}
+    target_ch = prefs.get("target_chapters")
+    if target_ch:
+        try:
+            tch = int(target_ch)
+            tarcs = int(prefs.get("target_arcs") or max(2, min(12, round(tch / 50))))
+            ch_per_arc = max(5, round(tch / tarcs))
+            lines.append(f"\n[TARGET SCALE]\nApproximately {tch} chapters across {tarcs} major volumes/arcs (~{ch_per_arc} chapters each).")
+            if tch >= 100:
+                lines.append("This is an expansive, multi-volume serialized webnovel: no single-crisis or standalone premises that exhaust their conflict early. Each option needs an expandable world engine, tiered progression and long-term momentum.")
+        except (ValueError, TypeError):
+            pass
+    if genre_engine_text.strip():
+        lines.append("\n[GENRE ENGINE — webnovel progression / reward machinery every option must run on]\n" + genre_engine_text.strip())
+    if charter_text.strip():
+        lines.append("\n[STORY CHARTER — the author's requirements; outranks the reference]\n" + charter_text.strip())
+        return "\n".join(lines)
     if prefs:
         lines.append("\n[USER PREFERENCES & CREATIVE DIRECTIVES]")
         if "protagonist_name" in prefs:
@@ -124,17 +137,6 @@ def source_brief(session: Session, source_project_id: int, *, preferences: Dict[
             lines.append(f"- Similarity to Reference: {prefs['similarity_to_original']}. (loose = abstract structural inspiration only; moderate = balanced thematic/pacing homage; close = close structural parallel while changing all entities).")
         if "tags" in prefs:
             lines.append(f"- Required Tags / Tropes: {prefs['tags']}")
-        target_ch = prefs.get("target_chapters")
-        if target_ch:
-            try:
-                tch = int(target_ch)
-                tarcs = int(prefs.get("target_arcs") or max(2, min(12, round(tch / 50))))
-                ch_per_arc = max(5, round(tch / tarcs))
-                lines.append(f"- Target Scale: Approximately {tch} chapters across {tarcs} major volumes/arcs (~{ch_per_arc} chapters each).")
-                if tch >= 100:
-                    lines.append("- Serial Scale Directive: This is an expansive, multi-volume serialized webnovel. Do NOT propose single-crisis or localized standalone premises that exhaust their conflict early. Each option must establish an expandable world engine, tiered progression, and long-term narrative momentum.")
-            except (ValueError, TypeError):
-                pass
         for k, v in prefs.items():
             if k not in ("protagonist_name", "summary", "similarity_to_original", "tags", "target_chapters", "target_arcs", "words_per_chapter", "total_words"):
                 lines.append(f"- {k}: {v}")
@@ -271,12 +273,14 @@ def persist_candidates(session: Session, *, job_id: int, source_project_id: int,
     return rows
 
 
-async def stage_storyline_generation(session: Session, *, job_id: int, source_project_id: int, client: ModelClient, preferences: Dict[str, Any], count: int = TARGET_OPTIONS, max_rounds: int = 2) -> Dict[str, Any]:
+async def stage_storyline_generation(session: Session, *, job_id: int, source_project_id: int, client: ModelClient, preferences: Dict[str, Any], count: int = TARGET_OPTIONS, max_rounds: int = 2, charter_text: str = "", genre_engine_text: str = "") -> Dict[str, Any]:
+    from app.services.ai.prompt_registry import PROMPT_STORYLINES, system_prompt
     from app.services.forge.corpus import load_source_chapters
 
     target_chapters = preferences.get("target_chapters")
     profile = source_profile(session, source_project_id)
-    brief = source_brief(session, source_project_id, preferences=preferences)
+    brief = source_brief(session, source_project_id, preferences=preferences, charter_text=charter_text, genre_engine_text=genre_engine_text)
+    prompt = system_prompt(session, PROMPT_STORYLINES)
     source_chapters = len(load_source_chapters(session, source_project_id))
     rejected_history: List[Dict[str, Any]] = []
     accepted: List[Dict[str, Any]] = []
@@ -285,7 +289,7 @@ async def stage_storyline_generation(session: Session, *, job_id: int, source_pr
     while rounds < max_rounds and len(accepted) < MIN_OPTIONS:
         rounds += 1
         need = max(count - len(accepted), MIN_OPTIONS)
-        result = await client.structured(role="storyline_ideator", schema=StorylineOptionSet, system_prompt=SYSTEM_PROMPT, user_prompt=build_prompt(brief, count=need, rejected=rejected_history, target_chapters=target_chapters), prompt_version=STORYLINE_PROMPT_VERSION, stage="STORYLINE_GENERATION")
+        result = await client.structured(role="storyline_ideator", schema=StorylineOptionSet, system_prompt=prompt.text, user_prompt=build_prompt(brief, count=need, rejected=rejected_history, target_chapters=target_chapters), prompt_version=prompt.version, stage="STORYLINE_GENERATION")
         fresh = [o.model_dump(mode="json") for o in result.options]
         gated, _ = gate_options(accepted + fresh, profile)
         accepted = [o for o in gated if not o["_rejected"]]

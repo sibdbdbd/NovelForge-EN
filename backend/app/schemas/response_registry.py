@@ -25,6 +25,8 @@ from app.schemas.bible import (
 )
 from app.schemas.bible_update import BibleUpdateProposal
 from app.schemas.story_memory import ChapterDigest, LlmContinuityFindings, StoryMemorySettings
+from app.schemas.story_charter import CharterInterpretation, StoryCharter
+from app.schemas.webnovel import DirectiveBook, WebnovelConformance, WebnovelStyleProfile
 
 RESPONSE_MODEL_MAP: Dict[str, Any] = {
     "Text": Text,
@@ -81,6 +83,13 @@ RESPONSE_MODEL_MAP: Dict[str, Any] = {
 	'ChapterDigest': ChapterDigest,
 	'LlmContinuityFindings': LlmContinuityFindings,
 	'StoryMemorySettings': StoryMemorySettings,
+	# --- Story Charter ---
+	'StoryCharter': StoryCharter,
+	'CharterInterpretation': CharterInterpretation,
+	# --- Webnovel Style Engine ---
+	'WebnovelStyleProfile': WebnovelStyleProfile,
+	'DirectiveBook': DirectiveBook,
+	'WebnovelConformance': WebnovelConformance,
 	# Nested types exported for frontend $ref resolution
 	'Evidence': Evidence,
 	'HistoryEntry': HistoryEntry,
