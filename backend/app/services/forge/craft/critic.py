@@ -12,7 +12,7 @@ are concatenated and de-duplicated by quote.
 from __future__ import annotations
 
 import re
-from typing import Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 from app.schemas.craft import CriticFinding, CriticReport, HookAnalysis
 from app.services.forge.craft import tics as tics_mod
@@ -158,4 +158,40 @@ def needs_polish(report: CriticReport, *, threshold: float = ACCEPT_THRESHOLD) -
     return report.verdict != "accept" or report.overall < threshold or any(f.severity in ("critical", "high") for f in report.findings)
 
 
-__all__ = ["ACCEPT_THRESHOLD", "REWRITE_THRESHOLD", "deterministic_critic", "merge_reports", "needs_polish"]
+# Conformance dimension -> critic dimension it constrains. Shared dimensions take the lower score.
+_CONFORMANCE_MAP = {"rhythm": "pacing", "inner_voice": "interiority", "conventions": "authenticity", "momentum": "pacing", "reward": "payoff", "ending": "hook"}
+
+
+def merge_conformance(det: CriticReport, conformance: Any) -> CriticReport:
+    """Fold a Webnovel Conformance scorecard into a critic report: shared dimensions take the lower score, the six
+    webnovel dimensions are added as ``webnovel_*`` scores, findings are appended (de-duplicated by code+quote)."""
+    if conformance is None:
+        return det
+    scores: Dict[str, int] = dict(det.scores)
+    for dim, val in (conformance.scores or {}).items():
+        target = _CONFORMANCE_MAP.get(dim)
+        if target:
+            scores[target] = min(scores.get(target, int(val)), int(val))
+        scores[f"webnovel_{dim}"] = int(val)
+    seen = {(f.dimension, f.quote.strip().lower()) for f in det.findings}
+    findings = list(det.findings)
+    for f in conformance.findings:
+        dim = _CONFORMANCE_MAP.get(f.code.split("_")[0], "authenticity")
+        for k, v in _CONFORMANCE_MAP.items():
+            if f.code.startswith(k):
+                dim = v
+        key = (dim, (f.quote or "").strip().lower())
+        if f.quote and key in seen:
+            continue
+        findings.append(CriticFinding(dimension=dim, severity=f.severity, quote=f.quote, problem=f"[webnovel/{f.code}] {f.problem}", fix=f.fix))
+        seen.add(key)
+    weights = {"authenticity": 1.6, "voice": 1.3, "interiority": 1.4, "dialogue": 1.0, "pacing": 1.0, "sensory": 0.7, "hook": 1.3, "payoff": 1.0, "ai_tics": 0.7}
+    base = sum(scores.get(k, 6) * w for k, w in weights.items()) / sum(weights.values())
+    # The webnovel scorecard is a co-equal judge: the chapter's overall is the mean of the two.
+    overall = round((base + float(conformance.overall)) / 2.0, 2)
+    critical = any(f.severity == "critical" for f in findings)
+    verdict = "rewrite" if overall < REWRITE_THRESHOLD or critical else ("accept" if overall >= ACCEPT_THRESHOLD and not any(f.severity == "high" for f in findings) else "polish")
+    return CriticReport(scores=scores, overall=overall, verdict=verdict, strongest_moment=det.strongest_moment, findings=findings, source="merged", tic_count=det.tic_count)
+
+
+__all__ = ["ACCEPT_THRESHOLD", "REWRITE_THRESHOLD", "deterministic_critic", "merge_conformance", "merge_reports", "needs_polish"]

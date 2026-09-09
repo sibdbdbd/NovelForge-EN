@@ -285,7 +285,7 @@ def firewall_architecture(arch: Dict[str, Any], profile: Optional[fw.SourceProfi
 
 # ------------------------------------------------------------------ prompt
 
-def build_prompt(storyline: Dict[str, Any], *, chapter_count: int, allocation: List[Dict[str, Any]], fit: Dict[str, Any], brief: str, preferences: Dict[str, Any], problems: Sequence[Dict[str, Any]] = (), previous: Optional[Dict[str, Any]] = None, charter_text: str = "") -> str:
+def build_prompt(storyline: Dict[str, Any], *, chapter_count: int, allocation: List[Dict[str, Any]], fit: Dict[str, Any], brief: str, preferences: Dict[str, Any], problems: Sequence[Dict[str, Any]] = (), previous: Optional[Dict[str, Any]] = None, charter_text: str = "", genre_engine_text: str = "", directives_text: str = "") -> str:
     parts = ["[SELECTED STORYLINE]", json.dumps({k: v for k, v in storyline.items() if k != "schema_version"}, ensure_ascii=False, indent=1)]
     parts += ["\n[CHAPTER COUNT — HARD CONSTRAINT]", f"The novel has exactly {chapter_count} chapters. Allocation of dramatic functions to chapter ranges:"]
     parts += [f"- {a['function']}: chapters {a['chapter_start']}-{a['chapter_end']}" for a in allocation]
@@ -297,6 +297,10 @@ def build_prompt(storyline: Dict[str, Any], *, chapter_count: int, allocation: L
         prefs = {k: v for k, v in preferences.items() if v not in (None, "", [], {})}
         if prefs:
             parts += ["\n[USER PREFERENCES]"] + [f"- {k}: {v}" for k, v in prefs.items()]
+    if directives_text.strip():
+        parts += ["\n[AUTHOR DIRECTIVES — novel-wide steering notes; same authority as the Story Charter]", directives_text.strip()]
+    if genre_engine_text.strip():
+        parts += ["\n[GENRE ENGINE — progression axis, tier ladder, reward types and arc shape the architecture must be built around]", genre_engine_text.strip()]
     parts += ["\n[REFERENCE STRUCTURE — abstract, entity-free]", brief]
     parts += ["\n[REQUIREMENTS]", "characters: 5-10 with full fields; the protagonist arc must have start/mid/end with chapter hints. locations: 4-8. knowledge_facts: 4-10 including every secret the plot depends on (use optional clue_chapter and suspicion_chapter before reader_reveal_chapter for progressive mystery foreshadowing). relationships: every pair that matters. plot_threads: one main_plot plus 2-5 subplots with opening and resolution chapters. setups_payoffs: 6-15 with setup_chapter < payoff_chapter <= chapter count. timeline: 8-20 events. act_plan: one line per allocated function."]
     if problems and previous is not None:
@@ -419,7 +423,7 @@ def stored_architecture(session: Session, project_id: int) -> Dict[str, Any]:
 
 # ------------------------------------------------------------------- stages
 
-async def stage_novel_architecture(session: Session, *, original_project_id: int, source_project_id: int, storyline: Dict[str, Any], chapter_count: int, client: ModelClient, brief: str, preferences: Dict[str, Any], profile: Optional[fw.SourceProfile], charter_text: str = "") -> Dict[str, Any]:
+async def stage_novel_architecture(session: Session, *, original_project_id: int, source_project_id: int, storyline: Dict[str, Any], chapter_count: int, client: ModelClient, brief: str, preferences: Dict[str, Any], profile: Optional[fw.SourceProfile], charter_text: str = "", genre_engine_text: str = "", directives_text: str = "") -> Dict[str, Any]:
     """Generate, validate and (if needed) repair the architecture; store it on the original project."""
     from app.services.ai.prompt_registry import PROMPT_ARCHITECTURE, system_prompt
 
@@ -433,7 +437,7 @@ async def stage_novel_architecture(session: Session, *, original_project_id: int
     previous: Optional[Dict[str, Any]] = None
     arch: Optional[Dict[str, Any]] = None
     for round_no in range(1, MAX_ARCHITECT_ROUNDS + 1):
-        result = await client.structured(role="novel_architect", schema=NovelArchitecture, system_prompt=prompt.text, user_prompt=build_prompt(storyline, chapter_count=chapter_count, allocation=allocation, fit=fit, brief=brief, preferences=preferences, problems=problems, previous=previous, charter_text=charter_text), prompt_version=prompt.version, stage="NOVEL_ARCHITECTURE")
+        result = await client.structured(role="novel_architect", schema=NovelArchitecture, system_prompt=prompt.text, user_prompt=build_prompt(storyline, chapter_count=chapter_count, allocation=allocation, fit=fit, brief=brief, preferences=preferences, problems=problems, previous=previous, charter_text=charter_text, genre_engine_text=genre_engine_text, directives_text=directives_text), prompt_version=prompt.version, stage="NOVEL_ARCHITECTURE")
         arch = result.model_dump(mode="json")
         problems = validate_architecture(arch, chapter_count=chapter_count) + firewall_architecture(arch, profile)
         if not problems:

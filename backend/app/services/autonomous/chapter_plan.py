@@ -15,7 +15,7 @@ ending contract.
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import Session, select
@@ -146,10 +146,14 @@ def _arch_digest(arch: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def build_prompt(arch: Dict[str, Any], *, chapters: Sequence[int], total: int, word_target: int, previous: Sequence[Dict[str, Any]], committed_summaries: Sequence[Dict[str, Any]] = (), problems: Sequence[Dict[str, Any]] = (), drafts: Optional[Sequence[Dict[str, Any]]] = None, charter_text: str = "") -> str:
+def build_prompt(arch: Dict[str, Any], *, chapters: Sequence[int], total: int, word_target: int, previous: Sequence[Dict[str, Any]], committed_summaries: Sequence[Dict[str, Any]] = (), problems: Sequence[Dict[str, Any]] = (), drafts: Optional[Sequence[Dict[str, Any]]] = None, charter_text: str = "", genre_engine_text: str = "", directives_text: str = "") -> str:
     parts = [_arch_digest(arch), f"\n[ALLOWED BEAT FUNCTIONS]\n{', '.join(BEAT_FUNCTIONS)}"]
     if charter_text.strip():
         parts.append("\n[STORY CHARTER — the author's requirements; shape every blueprint by them]\n" + charter_text.strip())
+    if directives_text.strip():
+        parts.append(f"\n[AUTHOR DIRECTIVES — steering notes that apply to chapters {chapters[0]}-{chapters[-1]}; same authority as the Story Charter]\n" + directives_text.strip())
+    if genre_engine_text.strip():
+        parts.append("\n[GENRE ENGINE — reward cadence and progression rules every blueprint must honour]\n" + genre_engine_text.strip())
     if committed_summaries:
         parts.append("\n[ALREADY WRITTEN CHAPTERS — immutable; plan continuity from their actual state]")
         for s in committed_summaries:
@@ -261,16 +265,44 @@ def existing_outlines(session: Session, project_id: int) -> Dict[int, Dict[str, 
 
 # ------------------------------------------------------------------- stages
 
+def planning_style_blocks(session: Session, project_id: int, *, chapters: Sequence[int]) -> Tuple[str, str]:
+    """(genre engine block, author directives block) for a planning window. Both degradable to ''."""
+    try:
+        from app.services.forge.webnovel.render import render_directives, render_for_planning
+        from app.services.forge.webnovel.service import DirectiveService, WebnovelStyleService
+
+        profile = WebnovelStyleService(session).get(project_id)
+        engine = render_for_planning(profile) if profile is not None else ""
+        book = DirectiveService(session).book(project_id)
+        # Directives for any chapter in the window, de-duplicated by id.
+        seen: set = set()
+        rows = []
+        for n in chapters:
+            for d in book.directives:
+                if d.id in seen:
+                    continue
+                if render_directives([d], chapter=int(n), consumer="planning"):
+                    rows.append(d)
+                    seen.add(d.id)
+        return engine, render_directives(rows, consumer="planning", prefiltered=True) if rows else ""
+    except Exception as exc:  # noqa: BLE001 - planning must not depend on the style engine being healthy
+        from loguru import logger
+
+        logger.warning(f"[ChapterPlan] style blocks unavailable for project {project_id}: {exc}")
+        return "", ""
+
+
 async def plan_range(session: Session, *, project_id: int, arch: Dict[str, Any], client: ModelClient, chapters: Sequence[int], total: int, word_target: int, previous: Sequence[Dict[str, Any]], committed: Sequence[Dict[str, Any]], stage: str, max_rounds: int = 3) -> List[Dict[str, Any]]:
     from app.services.ai.prompt_registry import PROMPT_CHAPTER_PLAN, system_prompt
     from app.services.story_charter import CharterService
 
     prompt = system_prompt(session, PROMPT_CHAPTER_PLAN)
     charter_text = CharterService(session).render(project_id, consumer="chapter_plan")
+    genre_engine_text, directives_text = planning_style_blocks(session, project_id, chapters=chapters)
     problems: List[Dict[str, Any]] = []
     drafts: Optional[List[Dict[str, Any]]] = None
     for _ in range(max_rounds):
-        result = await client.structured(role="chapter_planner", schema=ChapterBlueprintBatch, system_prompt=prompt.text, user_prompt=build_prompt(arch, chapters=chapters, total=total, word_target=word_target, previous=previous, committed_summaries=committed, problems=problems, drafts=drafts, charter_text=charter_text), prompt_version=prompt.version, stage=stage)
+        result = await client.structured(role="chapter_planner", schema=ChapterBlueprintBatch, system_prompt=prompt.text, user_prompt=build_prompt(arch, chapters=chapters, total=total, word_target=word_target, previous=previous, committed_summaries=committed, problems=problems, drafts=drafts, charter_text=charter_text, genre_engine_text=genre_engine_text, directives_text=directives_text), prompt_version=prompt.version, stage=stage)
         drafts = [c.model_dump(mode="json") for c in result.chapters if int(c.chapter_number) in set(chapters)]
         problems = validate_blueprints(drafts, arch, expected=chapters)
         if not problems:

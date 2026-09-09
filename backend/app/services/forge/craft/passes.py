@@ -104,6 +104,9 @@ class CraftInputs:
     relationships: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     knowledge_gaps: Dict[str, List[str]] = field(default_factory=dict)
     language: Optional[str] = None
+    # Webnovel Style Engine: the profile the chapter must read by (None = no webnovel conformance grading).
+    style_profile: Optional[Any] = None
+    author_directives: str = ""
 
 
 @dataclass
@@ -143,6 +146,28 @@ def voice_section_text(inputs: CraftInputs) -> str:
     return subtext_mod.render_voice(subtext_mod.voice_from_card(card), inputs.pov)
 
 
+def style_section_text(inputs: CraftInputs, *, consumer: str = "drafting") -> str:
+    """Rendered Webnovel Style block for a pass, or '' when the chapter has no profile."""
+    if inputs.style_profile is None:
+        return ""
+    from app.services.forge.webnovel.render import render_for_critic, render_for_drafting
+
+    return render_for_critic(inputs.style_profile) if consumer == "critic" else render_for_drafting(inputs.style_profile, max_chars=2600)
+
+
+def grade(prose: str, inputs: CraftInputs, *, hook: Optional[HookAnalysis] = None) -> CriticReport:
+    """Deterministic critic + Webnovel Conformance merged into one report (lower shared score wins)."""
+    lang = inputs.language or detect_language(prose)
+    hook = hook or hooks_mod.analyze_hook(prose, closing_hook_plan=inputs.closing_hook, language=lang)
+    det = critic_mod.deterministic_critic(prose, hook=hook, language=lang, pov_name=inputs.pov, word_target=inputs.word_target)
+    if inputs.style_profile is None:
+        return det
+    from app.services.forge.webnovel.conformance import measure_conformance
+
+    conf = measure_conformance(prose, inputs.style_profile, language=lang, closing_hook_plan=inputs.closing_hook)
+    return critic_mod.merge_conformance(det, conf)
+
+
 def build_packets(scenes: Sequence[ScenePlan], inputs: CraftInputs) -> List[SubtextPacket]:
     return [subtext_mod.build_packet(s, pov_name=inputs.pov, cards_by_name=inputs.cards_by_name, relationships=inputs.relationships, knowledge_gaps=inputs.knowledge_gaps) for s in scenes]
 
@@ -155,7 +180,7 @@ async def plan(drafter: Optional[Drafter], context: Any, inputs: CraftInputs, op
     if not (opts.model_scene_plan and drafter is not None) or len(inputs.beats) < 2:
         _record(report, "scene_plan", note=f"deterministic: {len(scenes)} scene(s)")
         return scenes
-    raw = await drafter(role="scene_planner", system_prompt=SCENE_PLAN_SYSTEM_PROMPT, user_prompt=build_scene_plan_prompt(context, inputs.beats, scenes, inputs.pov, inputs.participants, inputs.word_target, inputs.closing_hook), context=context)
+    raw = await drafter(role="scene_planner", system_prompt=SCENE_PLAN_SYSTEM_PROMPT, user_prompt=build_scene_plan_prompt(context, inputs.beats, scenes, inputs.pov, inputs.participants, inputs.word_target, inputs.closing_hook, style_text=style_section_text(inputs)), context=context)
     data = _lenient_json(raw)
     try:
         decomposition = SceneDecomposition.model_validate(data or {})
@@ -187,9 +212,15 @@ async def draft_scene_by_scene(drafter: Drafter, context: Any, base_system_promp
     texts: List[str] = []
     handoff = None
     voice_text = voice_section_text(inputs)
+    style_text = style_section_text(inputs)
     for scene, packet in zip(scenes, packets):
         brief = scenes_mod.render_scene_brief(scene, inputs.beats, word_target=inputs.word_target, scene_count=len(scenes), handoff=handoff, pov=inputs.pov)
-        parts = [base_user_prompt, "", f"[PROTAGONIST VOICE — {inputs.pov}]", voice_text, "", f"[SUBTEXT PACKET — scene {scene.index}]", subtext_mod.render_packet(packet, inputs.pov), "", SCENE_DRAFT_DIRECTIVES, "", brief]
+        parts = [base_user_prompt, "", f"[PROTAGONIST VOICE — {inputs.pov}]", voice_text]
+        if style_text:
+            parts += ["", "[WEBNOVEL STYLE — how this scene must read]", style_text]
+        if inputs.author_directives:
+            parts += ["", "[AUTHOR DIRECTIVES — honour these in this scene]", inputs.author_directives]
+        parts += ["", f"[SUBTEXT PACKET — scene {scene.index}]", subtext_mod.render_packet(packet, inputs.pov), "", SCENE_DRAFT_DIRECTIVES, "", brief]
         raw = await drafter(role="drafting", system_prompt=base_system_prompt, user_prompt="\n".join(parts), context=context)
         if scene.index < len(scenes):
             prose_only, _ = claims_mod.split_prose_and_claims(raw)  # intermediate scenes must not carry chapter blocks
@@ -204,7 +235,7 @@ async def draft_scene_by_scene(drafter: Drafter, context: Any, base_system_promp
 # ------------------------------------------------------------------- critic
 async def run_critic(drafter: Optional[Drafter], context: Any, prose: str, inputs: CraftInputs, opts: CraftOptions, report: CraftReport, *, label: str) -> CriticReport:
     hook = hooks_mod.analyze_hook(prose, closing_hook_plan=inputs.closing_hook, language=inputs.language)
-    det = critic_mod.deterministic_critic(prose, hook=hook, language=inputs.language, pov_name=inputs.pov, word_target=inputs.word_target)
+    det = grade(prose, inputs, hook=hook)
     if label == "before":
         report.hook_before = hook
     else:
@@ -212,7 +243,7 @@ async def run_critic(drafter: Optional[Drafter], context: Any, prose: str, input
     if not (opts.model_critic and drafter is not None):
         _record(report, f"critic_{label}", note=f"deterministic {det.overall}/10 · {det.verdict}")
         return det
-    raw = await drafter(role="critic", system_prompt=CRITIC_SYSTEM_PROMPT, user_prompt=build_critic_prompt(context, prose, inputs.pov, det), context=context)
+    raw = await drafter(role="critic", system_prompt=CRITIC_SYSTEM_PROMPT, user_prompt=build_critic_prompt(context, prose, inputs.pov, det, style_text=style_section_text(inputs, consumer="critic")), context=context)
     data = _lenient_json(raw)
     model_report: Optional[CriticReport] = None
     if data:
@@ -251,7 +282,7 @@ async def polish(drafter: Drafter, context: Any, raw: str, critic: CriticReport,
     findings = [f for f in critic.findings if f.severity in ("critical", "high", "medium")][:30]
     if not findings:
         return {"raw": raw, "changed": False, "critic": critic}
-    out = await drafter(role="polish", system_prompt=POLISH_SYSTEM_PROMPT, user_prompt=build_polish_prompt(context, before, findings, critic.strongest_moment, inputs.pov, voice_section_text(inputs)), context=context)
+    out = await drafter(role="polish", system_prompt=POLISH_SYSTEM_PROMPT, user_prompt=build_polish_prompt(context, before, findings, critic.strongest_moment, inputs.pov, voice_section_text(inputs), style_text=style_section_text(inputs)), context=context)
     candidate, _ = claims_mod.split_prose_and_claims(out)
     candidate = candidate.strip()
     lang = inputs.language or detect_language(before)
@@ -261,9 +292,8 @@ async def polish(drafter: Drafter, context: Any, raw: str, critic: CriticReport,
     if not candidate or count_units(candidate, lang) < count_units(before, lang) * floor:
         _record(report, "polish", calls=1, note=f"rejected: output too short (floor {floor:.2f})")
         return {"raw": raw, "changed": False, "critic": critic}
-    hook = hooks_mod.analyze_hook(candidate, closing_hook_plan=inputs.closing_hook, language=lang)
-    after = critic_mod.deterministic_critic(candidate, hook=hook, language=lang, pov_name=inputs.pov, word_target=inputs.word_target)
-    det_before = critic_mod.deterministic_critic(before, hook=hooks_mod.analyze_hook(before, closing_hook_plan=inputs.closing_hook, language=lang), language=lang, pov_name=inputs.pov, word_target=inputs.word_target)
+    after = grade(candidate, inputs)
+    det_before = grade(before, inputs)
     if after.overall + 0.05 < det_before.overall:
         _record(report, "polish", calls=1, note=f"rejected: deterministic score fell {det_before.overall} -> {after.overall}")
         return {"raw": raw, "changed": False, "critic": critic}
@@ -278,7 +308,7 @@ async def sharpen_hook(drafter: Drafter, context: Any, raw: str, hook: HookAnaly
     if not split["keep"]:
         _record(report, "hook", note="skipped: chapter too short to split")
         return {"raw": raw, "changed": False, "hook": hook}
-    out = await drafter(role="hook", system_prompt=HOOK_SYSTEM_PROMPT, user_prompt=build_hook_prompt(context, split["keep"][-2500:], split["tail"], hook, inputs.pov, inputs.closing_hook), context=context)
+    out = await drafter(role="hook", system_prompt=HOOK_SYSTEM_PROMPT, user_prompt=build_hook_prompt(context, split["keep"][-2500:], split["tail"], hook, inputs.pov, inputs.closing_hook, style_text=style_section_text(inputs)), context=context)
     new_tail, _ = claims_mod.split_prose_and_claims(out)
     new_tail = new_tail.strip()
     lang = inputs.language or detect_language(parts["prose"])
@@ -328,6 +358,16 @@ async def craft_chapter(
         _record(report, "draft_single_shot", calls=0, changed=True)
     calls_before = report.model_calls
 
+    def _conformance(text: str) -> Optional[Dict[str, Any]]:
+        if inputs.style_profile is None:
+            return None
+        from app.services.forge.webnovel.conformance import measure_conformance
+
+        c = measure_conformance(_prose_and_blocks(text)["prose"], inputs.style_profile, language=inputs.language, closing_hook_plan=inputs.closing_hook)
+        return c.model_dump(mode="json")
+
+    report.webnovel_before = _conformance(raw)
+
     if opts.critic:
         critic = await run_critic(drafter, context, _prose_and_blocks(raw)["prose"], inputs, opts, report, label="before")
         report.critic_before = critic
@@ -355,7 +395,8 @@ async def craft_chapter(
         report.accepted = final.verdict != "rewrite"
         if not report.accepted:
             report.reasons.append(f"critic verdict 'rewrite' ({final.overall}/10)")
+    report.webnovel_after = _conformance(raw) if (report.model_calls > calls_before) else report.webnovel_before
     return CraftOutcome(prose=raw, report=report, model_calls=report.model_calls)
 
 
-__all__ = ["CRAFT_VERSION", "CraftInputs", "CraftOptions", "CraftOutcome", "build_packets", "craft_chapter", "plan", "polish", "run_critic", "sharpen_hook", "voice_section_text"]
+__all__ = ["CRAFT_VERSION", "CraftInputs", "CraftOptions", "CraftOutcome", "build_packets", "craft_chapter", "grade", "plan", "polish", "run_critic", "sharpen_hook", "style_section_text", "voice_section_text"]

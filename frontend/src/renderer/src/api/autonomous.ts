@@ -33,6 +33,7 @@ export interface CreateJobRequest {
   target_chapters?: number
   target_arcs?: number
   quality_preset?: 'economy' | 'balanced' | 'quality'
+  craft_preset?: string
   storyline_count?: number
   fallback_llm_config_id?: number
   notes?: string
@@ -43,6 +44,155 @@ export interface CreateJobRequest {
   budget?: BudgetSpec
   idempotency_key?: string
   preflight_acknowledged?: boolean
+  // Webnovel Style Engine — everything optional; empty fields are detected from the brief and the reference.
+  platform?: WebnovelPlatform
+  subgenre?: string
+  perspective?: WebnovelPerspective
+  narrator_register?: WebnovelRegister
+  thought_style?: ThoughtStyle
+  status_windows?: boolean
+  comedy_level?: ComedyLevel
+  directives?: Array<Pick<AuthorDirective, 'scope' | 'kind' | 'text'> & Partial<Pick<AuthorDirective, 'chapter_from' | 'chapter_to' | 'applies_to' | 'active'>>>
+  auto_start?: boolean
+}
+
+// ------------------------------------------------------------------ webnovel style engine (mirrors backend/app/schemas/webnovel.py)
+export type WebnovelPlatform = 'novelpia' | 'munpia' | 'kakaopage' | 'naver_series' | 'royalroad' | 'generic'
+export type WebnovelPerspective = 'first_person' | 'third_limited' | 'third_close_alternating'
+export type WebnovelRegister = 'dry_cynical' | 'deadpan_pragmatic' | 'cold_calculating' | 'warm_wry' | 'manic_comic' | 'grim_survivor' | 'sardonic_noble' | 'earnest_underdog'
+export type ThoughtStyle = 'single_quotes' | 'italics' | 'em_dash' | 'plain'
+export type ComedyLevel = 'none' | 'dry' | 'regular' | 'high'
+export type DirectiveScope = 'novel' | 'arc' | 'chapter'
+export type DirectiveKind = 'must' | 'prefer' | 'avoid' | 'idea'
+
+export const WEBNOVEL_PLATFORMS: WebnovelPlatform[] = ['novelpia', 'munpia', 'kakaopage', 'naver_series', 'royalroad', 'generic']
+export const WEBNOVEL_PERSPECTIVES: WebnovelPerspective[] = ['first_person', 'third_limited', 'third_close_alternating']
+export const WEBNOVEL_REGISTERS: WebnovelRegister[] = ['dry_cynical', 'deadpan_pragmatic', 'cold_calculating', 'warm_wry', 'manic_comic', 'grim_survivor', 'sardonic_noble', 'earnest_underdog']
+export const THOUGHT_STYLES: ThoughtStyle[] = ['single_quotes', 'italics', 'em_dash', 'plain']
+export const COMEDY_LEVELS: ComedyLevel[] = ['none', 'dry', 'regular', 'high']
+export const DIRECTIVE_SCOPES: DirectiveScope[] = ['novel', 'arc', 'chapter']
+export const DIRECTIVE_KINDS: DirectiveKind[] = ['must', 'prefer', 'avoid', 'idea']
+
+export interface NarrationConventions {
+  thought_style: ThoughtStyle
+  thought_density: 'sparse' | 'regular' | 'dense'
+  window_style: 'square_brackets' | 'angle_brackets' | 'none'
+  windows_enabled: boolean
+  sfx_style: 'em_dash' | 'bare' | 'none'
+  sfx_density: 'none' | 'light' | 'regular'
+  address: 'korean_honorifics' | 'western_titles' | 'mixed' | 'minimal'
+  paragraph_rhythm: 'one_line' | 'short' | 'mixed'
+  line_break_beats: boolean
+  chapter_title_style: 'numbered_only' | 'numbered_with_title' | 'title_only' | 'episode'
+  tense: 'past' | 'present'
+  onomatopoeia_english: string[]
+}
+
+export interface GenreEngine {
+  subgenre: string
+  progression_axis: string
+  tier_ladder: string[]
+  reward_types: string[]
+  face_slap_cadence: 'none' | 'occasional' | 'regular' | 'every_arc'
+  knowledge_advantage: string
+  world_hooks: string[]
+  typical_arc_shape: string
+  genre_vocabulary: string[]
+}
+
+export interface ReaderExperience {
+  core_fantasy: string
+  dopamine_per_chapter: number
+  reward_gap_max_chapters: number
+  emotional_palette: string[]
+  comedy_level: ComedyLevel
+  romance_mode: 'none' | 'slow_burn_subplot' | 'central' | 'harem_adjacent_no' | 'found_family'
+  violence_level: 'low' | 'moderate' | 'high'
+  interiority_share_target: number
+}
+
+export interface ChapterShape {
+  words_target: number
+  opening_rule: string
+  ending_rule: string
+  hook_in_last_line: boolean
+  min_scenes: number
+  max_scenes: number
+  recap_allowed: boolean
+  author_note_style: 'none' | 'short' | 'chatty'
+}
+
+export interface WebnovelStyleProfile {
+  version: string
+  platform: WebnovelPlatform
+  perspective: WebnovelPerspective
+  narrative_distance: 'very_close' | 'close' | 'medium'
+  narrator_register: WebnovelRegister
+  narration: NarrationConventions
+  engine: GenreEngine
+  reader: ReaderExperience
+  chapter: ChapterShape
+  banned_moves: string[]
+  signature_moves: string[]
+  derived_from: 'author' | 'detected' | 'default'
+  detection_notes: string
+  updated_at: string
+}
+
+/** Recursive partial used for PATCH /style (the backend deep-merges). */
+export type StylePatch = { [K in keyof WebnovelStyleProfile]?: WebnovelStyleProfile[K] extends object ? (WebnovelStyleProfile[K] extends unknown[] ? WebnovelStyleProfile[K] : Partial<WebnovelStyleProfile[K]>) : WebnovelStyleProfile[K] }
+
+export interface StylePreview { drafting: string; planning: string; critic: string }
+
+export interface SubgenreTemplateInfo { key: string; label: string; progression_axis?: string; core_fantasy?: string; windows?: boolean; register?: string; note?: string }
+
+export interface AuthorDirective {
+  id: string
+  scope: DirectiveScope
+  chapter_from: number
+  chapter_to: number
+  kind: DirectiveKind
+  text: string
+  applies_to: Array<'planning' | 'drafting' | 'critic' | 'export'>
+  created_at: string
+  consumed_by_chapters: number[]
+  active: boolean
+}
+
+export type DirectiveRequest = Pick<AuthorDirective, 'scope' | 'kind' | 'text'> & Partial<Pick<AuthorDirective, 'chapter_from' | 'chapter_to' | 'applies_to' | 'active'>>
+export type DirectivePatch = Partial<Pick<AuthorDirective, 'scope' | 'chapter_from' | 'chapter_to' | 'kind' | 'text' | 'applies_to' | 'active'>>
+
+export interface RedoPlan { from_chapter: number; latest_committed: number; chapters_discarded: number[]; chapters_kept: number; will_replan: boolean; job_stage: string; job_status: string }
+export interface RedoRequest { from_chapter: number; note?: string; note_kind?: DirectiveKind; replan?: boolean; discard_texts?: boolean; auto_start?: boolean }
+
+export interface ConformanceFinding { code: string; severity: 'critical' | 'high' | 'medium' | 'low'; quote: string; problem: string; fix: string }
+export interface WebnovelConformance { version: string; scores: Record<string, number>; overall: number; metrics: Record<string, number>; findings: ConformanceFinding[]; passed: boolean }
+/** Mirrors `app.schemas.craft.CriticReport`; webnovel dimensions arrive prefixed `webnovel_` once merged. */
+export interface CriticReport { scores: Record<string, number>; overall: number; verdict: 'accept' | 'polish' | 'rewrite'; strongest_moment?: string; findings?: Array<Record<string, unknown>>; source?: 'deterministic' | 'model' | 'merged'; tic_count?: number }
+/** Whole-novel webnovel conformance summary from `audit.webnovel_audit` (surfaces in `/report` as `webnovel`). */
+export interface WebnovelAudit {
+  profile: { platform: string; subgenre: string; perspective: string; register: string }
+  overall: number
+  dimensions: Record<string, number>
+  chapters: Array<{ chapter: number; overall: number; scores: Record<string, number>; metrics?: Record<string, number> }>
+  below_floor: number[]
+  worst_reward_drought: number
+}
+
+export interface ChapterQuality {
+  chapter: number
+  run_id: number
+  model_calls: number
+  repair_attempts: number
+  validation_passed?: boolean | null
+  style?: Record<string, unknown> | null
+  critic_before?: CriticReport | null
+  critic_after?: CriticReport | null
+  webnovel_before?: WebnovelConformance | null
+  webnovel_after?: WebnovelConformance | null
+  passes?: Array<Record<string, unknown>> | null
+  hook_after?: Record<string, unknown> | null
+  mode?: string | null
 }
 
 export interface PreflightRequest {
@@ -218,4 +368,39 @@ export function artifactDownloadUrl(artifactId: number, jobId?: number): string 
   // Job-scoped route; the unscoped legacy path only redirects here.
   if (jobId != null) return `${API_BASE_URL}${artifactDownloadPath(artifactId, jobId)}`
   return `${API_BASE_URL}/autonomous/artifacts/${artifactId}/download`
+}
+
+// ------------------------------------------------------------------ Director (style profile, directives, redo)
+export function listSubgenres(): Promise<SubgenreTemplateInfo[]> {
+  return request.get('/autonomous/subgenres', undefined, '/api', opts)
+}
+export function getStyle(jobId: number): Promise<WebnovelStyleProfile> {
+  return request.get(`/autonomous/jobs/${jobId}/style`, undefined, '/api', opts)
+}
+export function patchStyle(jobId: number, patch: StylePatch): Promise<WebnovelStyleProfile> {
+  return request.request<WebnovelStyleProfile>({ method: 'PATCH', url: `/api/autonomous/jobs/${jobId}/style`, data: patch, ...opts })
+}
+export function getStylePreview(jobId: number): Promise<StylePreview> {
+  return request.get(`/autonomous/jobs/${jobId}/style/preview`, undefined, '/api', opts)
+}
+export function listDirectives(jobId: number): Promise<AuthorDirective[]> {
+  return request.get(`/autonomous/jobs/${jobId}/directives`, undefined, '/api', opts)
+}
+export function addDirective(jobId: number, body: DirectiveRequest): Promise<AuthorDirective> {
+  return request.post(`/autonomous/jobs/${jobId}/directives`, body, '/api', opts)
+}
+export function patchDirective(jobId: number, directiveId: string, body: DirectivePatch): Promise<AuthorDirective> {
+  return request.request<AuthorDirective>({ method: 'PATCH', url: `/api/autonomous/jobs/${jobId}/directives/${encodeURIComponent(directiveId)}`, data: body, ...opts })
+}
+export function deleteDirective(jobId: number, directiveId: string): Promise<{ removed: string }> {
+  return request.delete(`/autonomous/jobs/${jobId}/directives/${encodeURIComponent(directiveId)}`, undefined, '/api', opts)
+}
+export function getRedoPlan(jobId: number, fromChapter: number): Promise<RedoPlan> {
+  return request.get(`/autonomous/jobs/${jobId}/redo/plan`, { from_chapter: fromChapter }, '/api', opts)
+}
+export function redoFromChapter(jobId: number, body: RedoRequest): Promise<JobResponse> {
+  return request.request<JobResponse>({ method: 'POST', url: `/api/autonomous/jobs/${jobId}/redo`, data: body, timeout: 120_000, ...opts })
+}
+export function getChapterQuality(jobId: number, chapterNumber: number): Promise<ChapterQuality> {
+  return request.get(`/autonomous/jobs/${jobId}/chapters/${chapterNumber}/quality`, undefined, '/api', opts)
 }

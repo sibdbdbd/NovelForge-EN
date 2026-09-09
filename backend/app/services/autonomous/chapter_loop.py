@@ -85,12 +85,17 @@ def deviation_report(session: Session, project_id: int, chapter_number: int, res
     return {"chapter": chapter_number, "words": words, "word_target": word_target, "reasons": reasons, "material": bool(missed) or (word_target and abs(words - word_target) / float(word_target) > 0.6), "accepted_warnings": [{"code": w.get("code"), "severity": w.get("severity"), "rationale": "below blocking threshold; accepted by policy"} for w in warnings][:20], "facts_committed": len(committed_facts) if isinstance(committed_facts, list) else committed_facts}
 
 
-async def generate_next_chapter(session: Session, *, project_id: int, chapter_count: int, client: ModelClient, options: Dict[str, Any], word_target: int, budget_chars: int = 16000, lease_check: Optional[Callable[[], None]] = None) -> Dict[str, Any]:
+async def generate_next_chapter(session: Session, *, project_id: int, chapter_count: int, client: ModelClient, options: Dict[str, Any], word_target: int, budget_chars: int = 16000, lease_check: Optional[Callable[[], None]] = None, replan_before: Optional[int] = None) -> Dict[str, Any]:
     check = lease_check or (lambda: None)
     manifest = provenance.get_manifest(session, project_id, create=True)
     n = int(manifest.latest_committed_chapter) + 1
     if n > chapter_count:
         return {"complete": True, "chapter": None}
+    pre_replan: Dict[str, Any] = {}
+    if replan_before is not None and int(replan_before) == n and n <= chapter_count:
+        # Director redo: the author asked for chapter n (and its window) to be replanned under their note before drafting.
+        check()
+        pre_replan = await replan_from(session, project_id=project_id, chapter_count=chapter_count, client=client, options=options, after_chapter=n - 1, reasons=[f"author redo from chapter {n}"])
     drafter = ForgeDrafterAdapter(client)
     craft = craft_options_for(options)
     pipeline_opts = PipelineOptions(max_repairs=int(options.get("max_repairs") or 2), budget_chars=budget_chars, word_target=word_target, regenerate=False, craft=craft)
@@ -115,7 +120,15 @@ async def generate_next_chapter(session: Session, *, project_id: int, chapter_co
     replan: Dict[str, Any] = {"replanned": 0}
     if dev["material"] and n < chapter_count:
         replan = await replan_from(session, project_id=project_id, chapter_count=chapter_count, client=client, options=options, after_chapter=n, reasons=dev["reasons"])
-    craft_summary = {"mode": (result.craft or {}).get("mode"), "score": ((result.craft or {}).get("critic_after") or {}).get("overall"), "accepted": (result.craft or {}).get("accepted"), "passes": [p.get("name") for p in (result.craft or {}).get("passes") or []]} if result.craft else None
+    if pre_replan:
+        replan = {**replan, "pre_replan": pre_replan}
+    try:
+        from app.services.forge.webnovel import DirectiveService
+
+        DirectiveService(session).mark_consumed(project_id, n)
+    except Exception as exc:  # noqa: BLE001 - bookkeeping only
+        logger.warning(f"[Autonomous] directive bookkeeping skipped for ch.{n}: {exc}")
+    craft_summary = {"mode": (result.craft or {}).get("mode"), "score": ((result.craft or {}).get("critic_after") or {}).get("overall"), "accepted": (result.craft or {}).get("accepted"), "passes": [p.get("name") for p in (result.craft or {}).get("passes") or []], "webnovel": ((result.craft or {}).get("webnovel_after") or {}).get("scores"), "webnovel_overall": ((result.craft or {}).get("webnovel_after") or {}).get("overall")} if result.craft else None
     return {"complete": n >= chapter_count, "chapter": n, "run_id": result.run_id, "chapter_card_id": result.chapter_card_id, "model_calls": result.model_calls + (1 if memory.get("digested") else 0), "repair_attempts": result.repair_attempts, "style_score": (result.style or {}).get("adherence_score"), "validation_passed": (result.validation or {}).get("passed"), "craft": craft_summary, "deviation": dev, "replan": replan, "memory": memory}
 
 

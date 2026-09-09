@@ -23,6 +23,13 @@
 
     <el-alert v-if="auto.error.value" type="error" :closable="true" show-icon :title="auto.error.value" class="top-alert" @close="auto.error.value = null" />
 
+    <!-- Director: available on every screen once a job exists -->
+    <div v-if="auto.job.value && !['cancelled', 'failed'].includes(auto.job.value.status)" class="director-bar" data-testid="director-bar">
+      <span class="muted">{{ t('autonomous.directorHint') }}</span>
+      <el-button size="small" :type="showDirector ? 'default' : 'primary'" plain data-testid="director-toggle" @click="toggleDirector">{{ showDirector ? t('director.close') : t('director.open') }}</el-button>
+    </div>
+    <DirectorPanel v-if="showDirector && auto.job.value" :job="auto.job.value" :director="director" @close="showDirector = false" @job="onDirectorJob" />
+
     <!-- Screen 1: Upload -->
     <div v-if="auto.screen.value === 'upload'" class="screen" data-testid="screen-upload">
       <label class="drop" :class="{ active: dragging }" @dragover.prevent="dragging = true" @dragleave="dragging = false" @drop.prevent="onDrop">
@@ -68,6 +75,65 @@
           </template>
           <el-input v-model="form.summary" type="textarea" :autosize="{ minRows: 4, maxRows: 18 }" :placeholder="t('autonomous.brief.placeholder')" data-testid="brief-input" />
           <p class="muted brief-note">{{ t('autonomous.brief.charterNote') }}</p>
+        </el-card>
+        <el-card shadow="never" class="brief-card webnovel-card" data-testid="webnovel-card">
+          <template #header>
+            <div class="brief-head">
+              <b>{{ t('autonomous.webnovel.title') }}</b>
+              <span class="muted">{{ t('autonomous.webnovel.hint') }}</span>
+            </div>
+          </template>
+          <div class="grid">
+            <el-form-item :label="t('autonomous.webnovel.platform')">
+              <el-select v-model="form.platform" clearable :placeholder="t('autonomous.webnovel.auto')" data-testid="webnovel-platform">
+                <el-option v-for="p in WEBNOVEL_PLATFORMS" :key="p" :value="p" :label="t('autonomous.webnovel.platforms.' + p)" />
+              </el-select>
+            </el-form-item>
+            <el-form-item :label="t('autonomous.webnovel.subgenre')">
+              <el-select v-model="form.subgenre" clearable filterable :placeholder="t('autonomous.webnovel.auto')" data-testid="webnovel-subgenre">
+                <el-option v-for="s in subgenres" :key="s.key" :value="s.key" :label="s.label">
+                  <span>{{ s.label }}</span><span v-if="s.progression_axis" class="muted option-hint"> · {{ s.progression_axis }}</span>
+                </el-option>
+              </el-select>
+              <div class="field-hint wide">{{ selectedSubgenre?.core_fantasy || t('autonomous.webnovel.subgenreHint') }}</div>
+            </el-form-item>
+            <el-form-item :label="t('autonomous.webnovel.perspective')">
+              <el-select v-model="form.perspective" clearable :placeholder="t('autonomous.webnovel.auto')">
+                <el-option v-for="p in WEBNOVEL_PERSPECTIVES" :key="p" :value="p" :label="t('autonomous.webnovel.perspectives.' + p)" />
+              </el-select>
+            </el-form-item>
+            <el-form-item :label="t('autonomous.webnovel.register')">
+              <el-select v-model="form.narrator_register" clearable :placeholder="t('autonomous.webnovel.auto')" data-testid="webnovel-register">
+                <el-option v-for="r in WEBNOVEL_REGISTERS" :key="r" :value="r" :label="t('autonomous.webnovel.registers.' + r)" />
+              </el-select>
+            </el-form-item>
+            <el-form-item :label="t('autonomous.webnovel.thoughtStyle')">
+              <el-select v-model="form.thought_style" clearable :placeholder="t('autonomous.webnovel.auto')">
+                <el-option v-for="v in THOUGHT_STYLES" :key="v" :value="v" :label="t('autonomous.webnovel.thoughtStyles.' + v)" />
+              </el-select>
+            </el-form-item>
+            <el-form-item :label="t('autonomous.webnovel.statusWindows')">
+              <el-select v-model="form.status_windows" data-testid="webnovel-windows">
+                <el-option value="auto" :label="t('autonomous.webnovel.windows.auto')" />
+                <el-option value="on" :label="t('autonomous.webnovel.windows.on')" />
+                <el-option value="off" :label="t('autonomous.webnovel.windows.off')" />
+              </el-select>
+            </el-form-item>
+            <el-form-item :label="t('autonomous.webnovel.comedyLevel')">
+              <el-select v-model="form.comedy_level" clearable :placeholder="t('autonomous.webnovel.auto')">
+                <el-option v-for="v in COMEDY_LEVELS" :key="v" :value="v" :label="t('autonomous.webnovel.comedy.' + v)" />
+              </el-select>
+            </el-form-item>
+          </div>
+          <el-form-item :label="t('autonomous.webnovel.directives')">
+            <el-input v-model="form.directives_text" type="textarea" :autosize="{ minRows: 2, maxRows: 10 }" :placeholder="t('autonomous.webnovel.directivesPlaceholder')" data-testid="webnovel-directives" />
+            <div class="field-hint wide">{{ t('autonomous.webnovel.directivesHint') }}</div>
+          </el-form-item>
+          <div class="autostart-row">
+            <el-switch v-model="form.auto_start" data-testid="webnovel-autostart" />
+            <span>{{ t('autonomous.webnovel.autoStart') }}</span>
+            <span class="muted">— {{ t('autonomous.webnovel.autoStartHint') }}</span>
+          </div>
         </el-card>
         <el-collapse class="prefs">
           <el-collapse-item :title="t('autonomous.preferences')">
@@ -250,7 +316,10 @@
             <li><span>{{ t('autonomous.q.blocking') }}</span><b>{{ auto.report.value.audit?.blocking ?? 0 }}</b></li>
             <li v-for="(n, k) in auto.report.value.audit?.counts || {}" :key="k"><span>{{ k }}</span><b>{{ n }}</b></li>
             <li><span>{{ t('autonomous.q.repairs') }}</span><b>{{ Object.values(auto.job.value?.stage_results?.CHAPTER_GENERATION_LOOP || {}).reduce((s: number, c: any) => s + Number(c.repair_attempts || 0), 0) }}</b></li>
+            <li v-if="webnovelAudit"><span>{{ t('autonomous.q.webnovel') }}</span><b data-testid="webnovel-overall">{{ Number(webnovelAudit.overall ?? 0).toFixed(1) }} / 10</b></li>
+            <li v-if="webnovelAudit?.worst_reward_drought != null"><span>{{ t('autonomous.q.rewardDrought') }}</span><b>{{ webnovelAudit.worst_reward_drought }}</b></li>
           </ul>
+          <p v-if="styleSummary" class="muted style-summary" data-testid="style-summary">{{ t('autonomous.webnovel.summary', styleSummary) }}</p>
         </el-card>
         <el-card shadow="never">
           <template #header><b>{{ t('autonomous.originalitySummary') }}</b></template>
@@ -286,22 +355,27 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as api from '@renderer/api/autonomous'
-import { artifactDownloadUrl } from '@renderer/api/autonomous'
+import { artifactDownloadUrl, COMEDY_LEVELS, THOUGHT_STYLES, WEBNOVEL_PERSPECTIVES, WEBNOVEL_PLATFORMS, WEBNOVEL_REGISTERS, type SubgenreTemplateInfo } from '@renderer/api/autonomous'
 import { CRAFT_PRESETS, type CraftPreset } from '@renderer/api/craft'
 import { fileToBase64 } from '@renderer/api/lab'
 import { listLLMConfigs, type LLMConfigRead } from '@renderer/api/setting'
 import { ANALYSIS_STAGES, GENERATION_STAGES, useAutonomousNovel } from '@renderer/composables/useAutonomousNovel'
+import { useDirector, webnovelParams } from '@renderer/composables/useDirector'
 import JobProgressCard from '@renderer/components/autonomous/JobProgressCard.vue'
+import DirectorPanel from '@renderer/components/autonomous/DirectorPanel.vue'
 
 const emit = defineEmits<{ (e: 'open-project', projectId: number): void }>()
 const { t } = useI18n()
 const auto = useAutonomousNovel({ ...api, fileToBase64 })
+const director = useDirector(api, auto.job)
 const llmConfigs = ref<LLMConfigRead[]>([])
+const subgenres = ref<SubgenreTemplateInfo[]>([])
 const dragging = ref(false)
 const showRejected = ref(false)
+const showDirector = ref(false)
 const fileInput = ref<HTMLInputElement>()
 function qualityToCraft(q: string): CraftPreset { return q === 'economy' ? 'economy' : q === 'quality' ? 'full' : 'balanced' }
 const form = reactive<{
@@ -324,13 +398,30 @@ const form = reactive<{
   summary: string
   tags: string
   similarity_to_original: string
+  platform: '' | api.WebnovelPlatform
+  subgenre: string
+  perspective: '' | api.WebnovelPerspective
+  narrator_register: '' | api.WebnovelRegister
+  thought_style: '' | api.ThoughtStyle
+  status_windows: 'auto' | 'on' | 'off'
+  comedy_level: '' | api.ComedyLevel
+  directives_text: string
+  auto_start: boolean
 }>({
   llm_config_id: undefined, mode: 'fully_automatic', quality_preset: 'balanced', craft_preset: '', genre: '', genre_intensity: '', content_rating: '', ending_preference: '', romance_level: '', words_per_chapter: undefined, target_chapters: undefined, storyline_count: 7, title: '', author: '', notes: '', protagonist_name: '', summary: '', tags: '', similarity_to_original: 'moderate',
+  platform: '', subgenre: '', perspective: '', narrator_register: '', thought_style: '', status_windows: 'auto', comedy_level: '', directives_text: '', auto_start: true,
 })
 
 const stepIndex = computed(() => ['upload', 'analysis', 'choose', 'generating', 'finished'].indexOf(auto.screen.value))
 const ingestion = computed(() => auto.job.value?.stage_results?.INGEST?.quality)
 const visibleOptions = computed(() => (showRejected.value ? auto.storylines.value : auto.acceptedOptions.value))
+const selectedSubgenre = computed(() => subgenres.value.find((s) => s.key === form.subgenre))
+const webnovelAudit = computed<api.WebnovelAudit | null>(() => auto.report.value?.webnovel || auto.report.value?.audit?.webnovel || null)
+const styleSummary = computed(() => {
+  const p = auto.report.value?.style_profile || auto.job.value?.stage_results?.EXPORT?.style_profile
+  if (!p) return null
+  return { platform: t('autonomous.webnovel.platforms.' + p.platform, p.platform), subgenre: subgenres.value.find((s) => s.key === p.subgenre)?.label || p.subgenre, perspective: t('autonomous.webnovel.perspectives.' + p.perspective, p.perspective), register: t('autonomous.webnovel.registers.' + p.register, p.register) }
+})
 const budget = reactive({ max_calls: 0, max_total_tokens: 0, max_output_tokens: 0, max_input_tokens: 0, max_repair_calls: 0, max_cost_usd: 0, price_input: 0, price_output: 0 })
 const preflightAcknowledged = ref(false)
 const canStart = computed(() => !!auto.file.value && !!form.llm_config_id && !auto.busy.value && (auto.preflight.value?.passed === true || preflightAcknowledged.value))
@@ -340,6 +431,21 @@ const qualityIcon = computed<'success' | 'warning' | 'error'>(() => {
   if (q === 'completed_with_warnings' || q === 'manual_review_required') return 'warning'
   return 'success'
 })
+
+// Director state belongs to one job: drop it when the job changes or the wizard resets.
+watch(() => auto.job.value?.id, (id, prev) => {
+  if (id !== prev) { director.reset(); showDirector.value = false }
+})
+
+function toggleDirector(): void {
+  showDirector.value = !showDirector.value
+}
+async function onDirectorJob(res: api.JobResponse): Promise<void> {
+  // A redo requeued the job: adopt the new state and let the wizard resume polling from it.
+  auto.job.value = res.job
+  auto.active.value = res.active
+  await auto.refresh()
+}
 
 function budgetSpec(): api.BudgetSpec | undefined {
   const spec: api.BudgetSpec = {}
@@ -372,7 +478,10 @@ async function start() {
   for (const k of ['genre', 'genre_intensity', 'content_rating', 'ending_preference', 'romance_level', 'words_per_chapter', 'target_chapters', 'title', 'author', 'notes', 'protagonist_name', 'summary', 'tags', 'similarity_to_original'] as const) {
     if (form[k]) params[k] = form[k]
   }
+  Object.assign(params, webnovelParams(form))
   await auto.start(params as Omit<api.CreateJobRequest, 'filename' | 'content_base64'>)
+  // A job created paused for pre-editing opens the Director straight away.
+  if (!form.auto_start && auto.job.value) showDirector.value = true
 }
 
 onMounted(async () => {
@@ -381,12 +490,21 @@ onMounted(async () => {
     const kimi = llmConfigs.value.find((c) => /kimi/i.test(c.model_name || '') || /authnd/i.test(c.provider || ''))
     form.llm_config_id = Number((kimi || llmConfigs.value[0])?.id) || undefined
   } catch { /* shown as empty select */ }
+  try {
+    subgenres.value = (await api.listSubgenres()).filter((s) => !s.key.startsWith('platform:'))
+  } catch { /* the picker falls back to "let the engine decide" */ }
   await auto.loadJobs()
 })
 </script>
 
 <style scoped>
 .auto-novel { padding: 24px 32px; max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+.director-bar { display: flex; justify-content: flex-end; align-items: center; gap: 10px; }
+.webnovel-card { border-color: var(--el-color-primary-light-7); }
+.field-hint.wide { max-width: none; }
+.option-hint { font-size: 11px; }
+.autostart-row { display: flex; align-items: center; gap: 8px; font-size: 13px; flex-wrap: wrap; }
+.style-summary { margin: 8px 0 0; font-size: 12px; }
 .hero { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
 .hero h1 { margin: 0 0 4px; font-size: 24px; }
 .subtitle, .muted { color: var(--el-text-color-secondary); font-size: 13px; }

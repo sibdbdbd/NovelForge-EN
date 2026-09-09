@@ -86,12 +86,13 @@ def source_profile(session: Session, source_project_id: int) -> Optional[fw.Sour
     return fw.SourceProfile.from_chapters(chapters, manuscript_id=chapters[0].manuscript_id, entity_names=names + locations + objects, scene_summaries=summaries, beat_sequence=beats, character_roles=roles, locations=locations, objects=objects)
 
 
-def source_brief(session: Session, source_project_id: int, *, preferences: Dict[str, Any], charter_text: str = "") -> str:
+def source_brief(session: Session, source_project_id: int, *, preferences: Dict[str, Any], charter_text: str = "", genre_engine_text: str = "") -> str:
     """Abstract, entity-free description of the source that the ideator may see, plus the author's Story Charter.
 
     ``charter_text`` is the rendered Story Charter (see ``story_charter.render_charter``). When it is
     present it is the only source of author requirements; the raw preference dump is used only for
-    jobs created before the charter existed.
+    jobs created before the charter existed. ``genre_engine_text`` is the rendered Webnovel Style
+    Profile for planning (progression axis, reward types, arc shape) and is appended when present.
     """
     bible = BibleService(session)
     fp = _c(bible.singleton(source_project_id, "Narrative Fingerprint"))
@@ -121,6 +122,8 @@ def source_brief(session: Session, source_project_id: int, *, preferences: Dict[
                 lines.append("This is an expansive, multi-volume serialized webnovel: no single-crisis or standalone premises that exhaust their conflict early. Each option needs an expandable world engine, tiered progression and long-term momentum.")
         except (ValueError, TypeError):
             pass
+    if genre_engine_text.strip():
+        lines.append("\n[GENRE ENGINE — webnovel progression / reward machinery every option must run on]\n" + genre_engine_text.strip())
     if charter_text.strip():
         lines.append("\n[STORY CHARTER — the author's requirements; outranks the reference]\n" + charter_text.strip())
         return "\n".join(lines)
@@ -270,13 +273,13 @@ def persist_candidates(session: Session, *, job_id: int, source_project_id: int,
     return rows
 
 
-async def stage_storyline_generation(session: Session, *, job_id: int, source_project_id: int, client: ModelClient, preferences: Dict[str, Any], count: int = TARGET_OPTIONS, max_rounds: int = 2, charter_text: str = "") -> Dict[str, Any]:
+async def stage_storyline_generation(session: Session, *, job_id: int, source_project_id: int, client: ModelClient, preferences: Dict[str, Any], count: int = TARGET_OPTIONS, max_rounds: int = 2, charter_text: str = "", genre_engine_text: str = "") -> Dict[str, Any]:
     from app.services.ai.prompt_registry import PROMPT_STORYLINES, system_prompt
     from app.services.forge.corpus import load_source_chapters
 
     target_chapters = preferences.get("target_chapters")
     profile = source_profile(session, source_project_id)
-    brief = source_brief(session, source_project_id, preferences=preferences, charter_text=charter_text)
+    brief = source_brief(session, source_project_id, preferences=preferences, charter_text=charter_text, genre_engine_text=genre_engine_text)
     prompt = system_prompt(session, PROMPT_STORYLINES)
     source_chapters = len(load_source_chapters(session, source_project_id))
     rejected_history: List[Dict[str, Any]] = []

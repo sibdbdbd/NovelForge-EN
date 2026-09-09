@@ -299,10 +299,23 @@ def craft_inputs_for(session: Session, ctx: CompiledChapterContext) -> CraftInpu
     location = ""
     if prev_scene.startswith("location: "):
         location = prev_scene.split(";")[0].replace("location: ", "").strip()
+    # Webnovel Style Engine inputs: the stored profile and the author's directives for this chapter (both degradable).
+    style_profile = None
+    directives_text = ""
+    try:
+        from app.services.forge.webnovel.service import DirectiveService, WebnovelStyleService
+
+        style_profile = WebnovelStyleService(session).get(ctx.project_id)
+        directives_text = DirectiveService(session).render(ctx.project_id, chapter=ctx.chapter_number, consumer="drafting")
+    except Exception as exc:  # noqa: BLE001 - style inputs never block a chapter
+        from loguru import logger
+
+        logger.warning(f"[Pipeline] webnovel style inputs unavailable for project {ctx.project_id}: {exc}")
     return CraftInputs(
         pov=ctx.pov, participants=list(ctx.participants), beats=beats, word_target=int(ctx.word_target or 2500),
         closing_hook=str(oc.get("closing_hook") or ""), location=location if location and location != "None" else "",
         cards_by_name=cards_by_name, relationships=relationships, knowledge_gaps=gaps,
+        style_profile=style_profile, author_directives=directives_text,
     )
 
 
