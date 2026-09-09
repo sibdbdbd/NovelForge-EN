@@ -67,12 +67,16 @@ def _norm(s: Any) -> str:
 
 # ------------------------------------------------------------------ entities
 def validate_entities(prose: str, *, allowed: Iterable[str], source_entities: Iterable[str] = (), language: Optional[str] = None, max_new_named: int = 0) -> List[Issue]:
+    from app.services.forge.firewall import is_clean_proper_entity
+
     allowed_l = {_norm(a) for a in allowed if a}
     # Tokens of allowed multi-word names ("the Salt Archive" -> archive) are legitimate short references.
     allowed_tokens = {t for a in allowed_l for t in a.split() if len(t) >= 3 and t not in ("the", "and", "of")}
     source_l = {_norm(s) for s in source_entities if s}
     issues: List[Issue] = []
     for name, spans in named_entities(prose, language).items():
+        if not is_clean_proper_entity(name):
+            continue
         n = _norm(name)
         parts = n.split()
         if n in allowed_l or any(p in allowed_l for p in parts) or all(p in allowed_tokens for p in parts):
@@ -231,8 +235,10 @@ def validate_outline(prose: str, *, beats: Sequence[Dict[str, Any]], forbidden: 
         if len(terms) < 2:
             continue
         content_terms = [t for t in terms if t not in name_tokens]
-        min_content = min(2, len(content_terms)) if content_terms else 1
-        threshold = max(2, int(len(terms) * 0.65 + 0.5)) if len(terms) >= 3 else len(terms)
+        if not content_terms:
+            continue
+        min_content = min(2, len(content_terms))
+        threshold = max(len(terms) if len(terms) <= 3 else 3, int(len(terms) * 0.70 + 0.5))
         hit_span = None
         for i in range(len(sents)):
             window = " ".join(sents[i:i + 2]).lower()
@@ -289,8 +295,10 @@ def validate_pov(prose: str, *, pov: str, others: Iterable[str], pov_type: str =
         if len(terms) < 2:
             continue
         content_terms = [t for t in terms if t not in name_tokens]
-        min_content = min(2, len(content_terms)) if content_terms else 1
-        threshold = max(2, int(len(terms) * 0.65 + 0.5)) if len(terms) >= 3 else len(terms)
+        if not content_terms:
+            continue
+        min_content = min(2, len(content_terms))
+        threshold = max(len(terms) if len(terms) <= 3 else 3, int(len(terms) * 0.70 + 0.5))
         hit_span = None
         for i in range(len(sents)):
             window = " ".join(sents[i:i + 2]).lower()
@@ -305,7 +313,10 @@ def validate_pov(prose: str, *, pov: str, others: Iterable[str], pov_type: str =
     return issues
 
 
-_PROHIBITED_STOP = {"the", "and", "for", "was", "are", "not", "but", "his", "her", "she", "him", "has", "had", "all", "any", "one", "two", "who", "how", "why", "did", "does", "that", "this", "with", "from", "have", "been", "were", "will", "would", "about", "before", "after", "their", "there", "which", "when", "what", "into", "onto", "over", "under", "than", "then", "them", "they", "your", "some", "very", "also", "just", "only", "chapter", "planned", "reveal", "revealed", "reveals", "revealing", "payoff", "window", "along", "pov", "unaware", "yet"}
+_PROHIBITED_STOP = {
+    "the", "and", "for", "was", "are", "not", "but", "his", "her", "she", "him", "has", "had", "all", "any", "one", "two", "who", "how", "why", "did", "does", "that", "this", "with", "from", "have", "been", "were", "will", "would", "about", "before", "after", "their", "there", "which", "when", "what", "into", "onto", "over", "under", "than", "then", "them", "they", "your", "some", "very", "also", "just", "only", "chapter", "planned", "reveal", "revealed", "reveals", "revealing", "payoff", "window", "along", "pov", "unaware", "yet",
+    "is", "be", "being", "am", "its", "our", "ours", "theirs", "more", "most", "less", "least", "such", "well", "even", "still", "here", "where", "whom", "whose", "both", "each", "few", "other", "no", "nor", "own", "same", "so", "too", "can", "could", "shall", "should", "may", "might", "must", "now", "between", "through", "above", "below", "behind", "against", "without", "within", "during", "towards", "toward", "upon"
+}
 
 
 # -------------------------------------------------------------------- character

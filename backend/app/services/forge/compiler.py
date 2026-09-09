@@ -356,17 +356,14 @@ class ChapterContextCompiler:
                     return True
             return False
 
-        for card in self.bible.cards_of_type(project_id, "Chapter Outline"):
-            c = _c(card)
-            n = int(c.get("chapter_number") or 0)
-            if n > chapter_number:
-                for b in (c.get("beats") or [])[:3]:
-                    desc = b.get("description") or b.get("text") if isinstance(b, dict) else None
-                    if desc and not _is_planned_here(desc):
-                        forbidden_outcomes.append(f"(ch.{n}) {_trim(desc, 160)}")
-                for x in c.get("allowed_outcomes") or []:
-                    if not _is_planned_here(x):
-                        forbidden_outcomes.append(f"(ch.{n}) {_trim(x, 160)}")
+        if not forbidden_outcomes:
+            for card in self.bible.cards_of_type(project_id, "Chapter Outline"):
+                c = _c(card)
+                n = int(c.get("chapter_number") or 0)
+                if n == chapter_number + 1:
+                    for x in c.get("allowed_outcomes") or []:
+                        if not _is_planned_here(x):
+                            forbidden_outcomes.append(f"(ch.{n}) {_trim(x, 160)}")
         if forbidden_outcomes:
             seen_f: Set[str] = set()
             deduped: List[str] = []
@@ -376,7 +373,6 @@ class ChapterContextCompiler:
                     seen_f.add(key)
                     deduped.append(f)
             forbidden_outcomes = deduped
-            prohibited += forbidden_outcomes
         fact_classes["prohibited"] += forbidden_outcomes
 
         # 9-10. POV and knowledge boundary (mandatory)

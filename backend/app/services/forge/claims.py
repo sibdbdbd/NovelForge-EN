@@ -58,6 +58,9 @@ _COMMON_CAP = {
     "Like", "Or", "Nor", "Try", "Trying", "Tried", "Tries", "Student", "Students", "Teacher", "Teachers", "Class", "Classes", "Black", "White", "Red", "Blue", "Green", "Yellow", "Gold", "Silver", "Death", "Flag", "Flags", "Game", "Master", "Admin", "System", "Status", "Window", "Interface", "Scene", "Room", "Dorm", "Dormitory", "Academy", "Office", "Infirmary", "Library", "Don", "Won", "Cannot", "Couldn", "Wouldn", "Shouldn", "Didn", "Isn", "Aren", "Wasn", "Weren", "Haven", "Hasn", "Hadn", "Looked", "Looking", "Looks", "Seemed", "Seeming", "Seems", "Think", "Thinks", "Thought", "Thinking", "Ask", "Asks", "Asked", "Asking", "Say", "Says", "Said", "Saying", "Tell", "Tells", "Told", "Telling", "Feel", "Feels", "Felt", "Feeling", "Turn", "Turns", "Turned", "Turning", "Walk", "Walks", "Walked", "Walking", "Step", "Steps", "Stepped", "Stepping", "Stand", "Stands", "Stood", "Standing", "Sit", "Sits", "Sat", "Sitting", "Take", "Takes", "Took", "Taking", "Give", "Gives", "Gave", "Giving", "Make", "Makes", "Made", "Making", "Came", "Coming", "Went", "Going", "Know", "Knows", "Knew", "Knowing", "See", "Sees", "Saw", "Seeing", "Hear", "Hears", "Heard", "Hearing", "Find", "Finds", "Found", "Finding", "Leave", "Leaves", "Leaving",
     "Eyes", "Eye", "Oh", "Ah", "Ha", "Hmm", "Demon", "Demon Lord", "Hero", "Heroine", "King", "Queen", "Prince", "Princess", "Duke", "Duchess", "Count", "Countess", "Baron", "Baroness", "God", "Goddess", "Lord", "Lady",
     "Your", "Yours", "Mine", "Ours", "Theirs",
+    "Six", "Seven", "Eight", "Nine", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety", "Million", "Billion",
+    "By", "Kept", "Opened", "Adjusted", "Counting", "Lazy", "Charity", "Maximum", "Minimum", "Item", "Material", "Platinum", "Condition", "Cosmetic", "Note", "Gemstone", "Sapphire", "Concealed", "Held", "Taking", "Setting", "Drawing", "Putting", "Turning", "Standing", "Looking", "Passing", "Walking", "Running", "Moving", "Hearing", "Watching", "Touching", "Holding", "Pulling", "Pushing", "Reaching", "Entering", "Leaving", "Stopping", "Starting", "Waiting", "Checking", "Finding", "Signet", "Brooch", "Appraisal", "Pawnshop", "Vault", "Counter", "Ledger", "Coin", "Coins", "Gold", "Silver", "Copper",
+    "I've", "I'm", "I'll", "I'd", "We've", "They've", "You've", "He's", "She's", "It's", "There's", "What's", "Don't", "Didn't", "Won't", "Wouldn't", "Can't", "Couldn't", "Haven't", "Hasn't", "Hadn't", "Isn't", "Aren't", "Wasn't", "Weren't",
     "Poisoned", "Injured", "Wounded", "Bleeding", "Dying", "Dead", "Corrupted", "Broken", "Shocked", "Terrified", "Trapped", "Forced", "Surrounded", "Determined", "Unable", "Aware", "Unaware", "Afraid", "Lost", "Hidden", "Suddenly", "Immediately", "Naturally", "Unfortunately", "Fortunately", "Clearly", "Obviously", "Slowly", "Quickly", "Carefully", "Silently", "Softly", "Loudly", "Gently", "Calmly"
 }
 
@@ -197,10 +200,12 @@ def named_entities(prose: str, language: Optional[str] = None) -> Dict[str, List
     for m in _CAP_NAME.finditer(prose):
         token = m.group(0)
         first = token.split()[0]
-        if first in _COMMON_CAP:
+        if first in _COMMON_CAP or token in _COMMON_CAP:
             continue
         # Skip tokens that are part of a contraction (e.g. Don't, Won't, It's)
         if m.end() < len(prose) and prose[m.end()] in ("'", "’"):
+            continue
+        if "'" in token or "’" in token:
             continue
         # A sentence-initial single capitalized word needs a second occurrence
         # (anywhere) to count as a name; a one-off could be an ordinary word.
