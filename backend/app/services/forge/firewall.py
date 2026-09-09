@@ -26,11 +26,14 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
+from app.services.forge.lexicon import is_non_name_word
 from app.services.forge.textmetrics import detect_language, normalize_for_index, tokenize
 
 FIREWALL_VERSION = "firewall-1"
 
-_CAP_TERM = re.compile(r"\b[A-Z][a-zA-Z'\-]{2,}(?:\s+[A-Z][a-zA-Z'\-]{2,}){0,2}\b")
+# A capitalised term is a word of letters (hyphens allowed inside); apostrophes are
+# excluded so contractions ("I've", "Don't") and possessives never become terms.
+_CAP_TERM = re.compile(r"\b[A-Z][a-zA-Z\-]{2,}(?:\s+[A-Z][a-zA-Z\-]{2,}){0,2}\b")
 _HANGUL_TERM = re.compile(r"[\uac00-\ud7a3]{2,6}")
 _QUOTED = re.compile(r"[\"“”「『]([^\"“”」』\n]{6,300})[\"“”」』]")
 _EN_STOP = {
@@ -119,7 +122,13 @@ def _jaccard(a: Set[Any], b: Set[Any]) -> float:
 
 
 def extract_candidate_terms(text: str, language: Optional[str] = None) -> Counter:
-    """Capitalized multiword terms (EN) or Hangul noun-like tokens (KO) with counts."""
+    """Capitalized multiword terms (EN) or Hangul noun-like tokens (KO) with counts.
+
+    English candidates are filtered through the shared lexicon so ordinary words
+    that open sentences (numbers, titles, colours, common verbs) and genre words
+    are never counted as source-specific vocabulary. A two/three-word run is kept
+    only when at least one of its words could be a name.
+    """
     lang = language or detect_language(text)
     counts: Counter = Counter()
     if lang == "ko":
@@ -128,8 +137,10 @@ def extract_candidate_terms(text: str, language: Optional[str] = None) -> Counte
                 counts[m] += 1
     else:
         for m in _CAP_TERM.findall(text):
-            first = m.split()[0]
-            if first in _EN_STOP or m in _EN_STOP:
+            words = m.split()
+            if words[0] in _EN_STOP or m in _EN_STOP:
+                continue
+            if all(is_non_name_word(w) or w.lower() in _GENERIC_ENTITY_WORDS for w in words):
                 continue
             counts[m] += 1
     return counts
@@ -181,16 +192,17 @@ class SourceProfile:
         # text a single capitalized word must occur at least once *inside* a
         # sentence (not sentence-initial) and never as an ordinary lowercase
         # word; otherwise it is just a capitalized common word ("Same", "Quiet").
-        lower_tokens = set(tokenize(joined, lang)) if lang != "ko" else set()
         prof.distinctive_terms = set()
         for t, c in terms.most_common(max_terms):
             if c < 3:
                 continue
-            if lang != "ko" and " " not in t:
+            if lang != "ko":
+                words = t.split()
+                if len(words) == 1 and is_non_name_word(t):
+                    continue
                 if re.search(rf"(?<![A-Za-z]){re.escape(t.lower())}(?![A-Za-z])", joined):
                     continue
-                mid_sentence = re.search(rf"[a-z,;:]\s+{re.escape(t)}\b", joined)
-                if not mid_sentence:
+                if len(words) == 1 and not re.search(rf"[a-z,;:]\s+{re.escape(t)}\b", joined):
                     continue
             prof.distinctive_terms.add(t.lower())
         prof.distinctive_terms |= prof.entity_names
@@ -269,6 +281,7 @@ def check_text(
     max_rare_ngram_ratio: float = 0.02,
     max_beat_lcs_ratio: float = 0.75,
     max_summary_similarity: float = 0.6,
+    distinctive_term_block_threshold: int = 3,
 ) -> FirewallReport:
     """Run every firewall check against ``text`` (a draft, outline or Bible dump)."""
     findings: List[Finding] = []
@@ -283,15 +296,22 @@ def check_text(
         if re.search(rf"(?<![\w]){re.escape(name)}(?![\w])", lowered):
             findings.append(Finding("entity_overlap", "critical", f"Source entity name '{name}' appears in the text", _find_span(text, name), name))
 
-    # 2. distinctive terms
+    # 2. distinctive terms. Vocabulary overlap is evidence of leakage only in bulk: a
+    #    single shared capitalised word (a common surname, a plausible place name) is
+    #    advisory; the finding becomes blocking once several distinct terms recur.
     term_hits = 0
+    term_findings: List[Finding] = []
     for term in sorted(profile.distinctive_terms - profile.entity_names):
-        if term in allowed or len(term) < 4:
+        if term in allowed or len(term) < 4 or is_non_name_word(term):
             continue
         if re.search(rf"(?<![\w]){re.escape(term)}(?![\w])", lowered):
             term_hits += 1
             if term_hits <= 25:
-                findings.append(Finding("distinctive_term_overlap", "high", f"Source-specific term '{term}' appears in the text", _find_span(text, term), term))
+                term_findings.append(Finding("distinctive_term_overlap", "medium", f"Source-specific term '{term}' appears in the text", _find_span(text, term), term))
+    if term_hits >= distinctive_term_block_threshold:
+        for f in term_findings:
+            f.severity = "high"
+    findings += term_findings
 
     # 3. long phrase overlap
     toks = tokenize(text, lang)

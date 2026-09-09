@@ -491,14 +491,18 @@ def test_step29_30_sync_failure_does_not_advance_canon(client, state):
     # Chapter 3 is blocked because chapter 2 is not synchronized.
     r = client.post("/api/forge/chapters/compile", json={"project_id": opid, "chapter_number": 3})
     assert r.status_code == 409 and r.json()["detail"]["code"] == "previous_chapter_not_synchronized"
-    # A rejected draft (faults that repair cannot fix) is never committed.
+    # A rejected draft (faults that repair cannot fix) is never committed. The repair editor
+    # returns the very same draft, so the loop detects the stall after one attempt instead of
+    # spending the remaining repair budget on an identical prompt.
     class StubbornDrafter(FakeDrafter):
         async def __call__(self, *, role, system_prompt, user_prompt, context):
             self.calls.append({"role": role})
             return _original_chapter(context.chapter_number, inject_leak=True)
     with Session(engine) as s:
         res = asyncio.run(run_chapter(s, project_id=opid, chapter_number=2, drafter=StubbornDrafter(), options=PipelineOptions(max_repairs=2)))
-    assert res.status == "rejected" and res.repair_attempts == 2 and res.chapter_card_id is None
+    assert res.status == "rejected" and res.repair_attempts == 1 and res.chapter_card_id is None
+    assert res.model_calls == 2 and res.validation["repair_stalled"] == "repair returned an unchanged draft"
+    assert res.error["repair_stalled"] == "repair returned an unchanged draft"
     assert client.get("/api/forge/manifest", params={"project_id": opid}).json()["canon_revision"] == before["canon_revision"]
 
 

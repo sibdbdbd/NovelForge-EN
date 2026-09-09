@@ -26,20 +26,29 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from sqlmodel import Session, select
 
-from app.db.models import Card, CardType, ChapterPipelineRun
+from app.db.models import Card, ChapterPipelineRun
 from app.services.bible.bible_service import BibleService
 from app.services.forge import canon as canon_store
 from app.services.forge import examples as example_lib
-from app.services.forge import provenance
-from app.services.forge.fingerprint import compact_fingerprint
-from app.services.forge.textmetrics import sha256_text, split_paragraphs, tokenize
+from app.services.forge import provenance, spoilers
 from app.services.forge.claims import _CAP_NAME
-from app.services.forge.validators import _PROHIBITED_STOP
+from app.services.forge.fingerprint import compact_fingerprint
+from app.services.forge.textmetrics import sha256_text, split_paragraphs
 from app.services.story_charter import CharterService, render_charter
 
 COMPILER_VERSION = provenance.COMPILER_VERSION
 
 FACT_CLASSES = ("locked_canon", "planned", "prohibited", "paid_off", "flexible", "unknown")
+
+# How far ahead the compiler looks when turning upcoming outlines into forbidden
+# outcomes, and how many such items it will emit. Anything further ahead is
+# protected by explicit Knowledge Fact cards, not by outline text.
+FUTURE_OUTLINE_WINDOW = 5
+FUTURE_OUTLINE_MAX_ITEMS = 24
+FUTURE_OUTLINE_BEATS_PER_CHAPTER = 2
+# Prompt-side caps (characters / items) so a large Bible cannot bloat a section past the budget.
+PROHIBITED_PROMPT_ITEMS = 40
+KNOWLEDGE_BOUNDARY_ITEMS = 20
 
 FLEXIBLE_DETAIL_POLICY = {
     "allowed": ["nonspecific weather", "generic room atmosphere", "minor body movement and gesture", "nonpersistent sensory language", "unnamed background extras with no lines of consequence"],
@@ -129,6 +138,8 @@ class ChapterContextCompiler:
         self.session = session
         self.bible = BibleService(session)
         self.charter = CharterService(session)
+        # (project_id, card type) -> {chapter_number: card}; reset at the start of every compile.
+        self._chapter_index: Dict[Tuple[int, str], Dict[int, Card]] = {}
 
     # ------------------------------------------------------------------ lookups
     def _outline(self, project_id: int, chapter_number: int, outline_card_id: Optional[int]) -> Card:
@@ -139,16 +150,13 @@ class ChapterContextCompiler:
             if int(_c(card).get("chapter_number") or 0) != int(chapter_number):
                 raise ContextCompileError("outline_mismatch", f"Chapter Outline {outline_card_id} is for chapter {_c(card).get('chapter_number')}, not {chapter_number}")
             return card
-        for card in self.bible.cards_of_type(project_id, "Chapter Outline"):
-            if int(_c(card).get("chapter_number") or 0) == int(chapter_number):
-                return card
-        raise ContextCompileError("outline_missing", f"No Chapter Outline exists for chapter {chapter_number}")
+        card = self._by_chapter(project_id, "Chapter Outline").get(int(chapter_number))
+        if card is None:
+            raise ContextCompileError("outline_missing", f"No Chapter Outline exists for chapter {chapter_number}")
+        return card
 
     def _chapter_text_card(self, project_id: int, chapter_number: int) -> Optional[Card]:
-        for card in self.bible.cards_of_type(project_id, "Chapter Text"):
-            if int(_c(card).get("chapter_number") or 0) == int(chapter_number):
-                return card
-        return None
+        return self._by_chapter(project_id, "Chapter Text").get(int(chapter_number))
 
     def _character_index(self, project_id: int) -> Tuple[Dict[str, Card], Dict[str, str]]:
         by_name: Dict[str, Card] = {}
@@ -215,6 +223,7 @@ class ChapterContextCompiler:
         word_target: Optional[int] = None,
         regenerate: bool = False,
     ) -> CompiledChapterContext:
+        self._chapter_index = {}
         manifest = provenance.get_manifest(self.session, project_id, create=True)
         self._check_namespace(project_id, manifest)
         if expected_canon_revision is not None and int(expected_canon_revision) != int(manifest.canon_revision):
@@ -354,49 +363,21 @@ class ChapterContextCompiler:
         fact_classes["planned"] += allowed_outcomes + [str(b.get("description") or b.get("text") or "") for b in beats]
         for s in (oc.get("setups") or []):
             fact_classes["planned"].append(str(s))
-        # Later chapters' outlines are prohibited future outcomes — except beats
-        # that the current chapter also plans (recurring scene templates, setups, or overlapping outcomes).
-        def _norm_token(t: str) -> str:
-            return t.strip("'\"“”‘’").lower()
-
-        planned_norm = {" ".join(str(x).lower().split()) for x in fact_classes["planned"]}
-        planned_tokens = [{_norm_token(w) for w in tokenize(str(p).lower()) if len(_norm_token(w)) >= 3 and _norm_token(w) not in _PROHIBITED_STOP} for p in fact_classes["planned"]]
-
-        def _is_planned_here(text: str) -> bool:
-            t = " ".join(str(text).lower().split())
-            if t in planned_norm:
-                return True
-            words = {_norm_token(w) for w in tokenize(str(text).lower()) if len(_norm_token(w)) >= 3 and _norm_token(w) not in _PROHIBITED_STOP}
-            if not words:
-                return False
-            for p_words in planned_tokens:
-                if not p_words:
-                    continue
-                exact_overlap = len(words & p_words)
-                if exact_overlap >= min(len(words), len(p_words)) * 0.7 or (len(words) >= 3 and exact_overlap >= 3):
-                    return True
-                stem_overlap = sum(1 for w in words if any(pw == w or (len(w) >= 4 and len(pw) >= 4 and (w.startswith(pw[:4]) or pw.startswith(w[:4]))) for pw in p_words))
-                if stem_overlap >= min(len(words), len(p_words)) * 0.7 or (len(words) >= 3 and stem_overlap >= 3):
-                    return True
-            return False
-
-        for card in self.bible.cards_of_type(project_id, "Chapter Outline"):
-            c = _c(card)
-            n = int(c.get("chapter_number") or 0)
-            if n > chapter_number:
-                for b in (c.get("beats") or [])[:3]:
-                    desc = b.get("description") or b.get("text") if isinstance(b, dict) else None
-                    if desc and not _is_planned_here(desc):
-                        forbidden_outcomes.append(f"(ch.{n}) {_trim(desc, 160)}")
-                for x in c.get("allowed_outcomes") or []:
-                    if not _is_planned_here(x):
-                        forbidden_outcomes.append(f"(ch.{n}) {_trim(x, 160)}")
+        # Future-chapter outcomes. Knowledge boundaries live in explicit Knowledge Fact
+        # cards (handled below); the outlines of *nearby* upcoming chapters are added as
+        # forbidden outcomes only so the drafter does not run ahead of the plan. The
+        # window is bounded (FUTURE_OUTLINE_WINDOW chapters, FUTURE_OUTLINE_MAX_ITEMS
+        # items): scanning all 399 remaining outlines of a 400-chapter novel made every
+        # ordinary word in them a validation trap for chapter 1.
+        planned_statements = [s for s in fact_classes["planned"] if str(s).strip()]
+        future_window = self._future_outlines(project_id, chapter_number, exclude=outline.id)
+        forbidden_outcomes += self._future_forbidden(future_window, planned_statements, chapter_number)
         if forbidden_outcomes:
             seen_f: Set[str] = set()
             deduped: List[str] = []
             for f in forbidden_outcomes:
-                key = " ".join(f.split(")", 1)[-1].lower().split()) if f.startswith("(ch.") else " ".join(f.lower().split())
-                if key not in seen_f:
+                key = spoilers.normalize_statement(f).lower()
+                if key and key not in seen_f:
                     seen_f.add(key)
                     deduped.append(f)
             forbidden_outcomes = deduped
@@ -413,7 +394,7 @@ class ChapterContextCompiler:
             from app.services.forge.craft.subtext import render_voice, voice_from_card
 
             sections.append(Section("protagonist_voice", f"PROTAGONIST VOICE — {pov_name.upper()} (inner register; keep the gap between narration and speech visible)", render_voice(voice_from_card(_c(pov_card)), pov_name), card_ids=[pov_card.id], revisions=[_rev(pov_card)], priority=6))
-        boundary_lines = [f"- knows: {_trim(k, 200)}" for k in (knows if isinstance(knows, list) else [knows])][:20]
+        boundary_lines = [f"- knows: {_trim(k, 200)}" for k in (knows if isinstance(knows, list) else [knows])][:KNOWLEDGE_BOUNDARY_ITEMS]
         for card in self.bible.cards_of_type(project_id, "Knowledge Fact"):
             c = _c(card)
             knowers = {str(k.get("entity", "")).lower(): k for k in (c.get("knowers") or []) if isinstance(k, dict)}
@@ -656,7 +637,7 @@ class ChapterContextCompiler:
         ), mandatory=True, priority=14))
         sections.append(Section("originality", "ORIGINALITY REQUIREMENTS", "All wording, imagery, names, dialogue and scene details must be original. Reference examples demonstrate technique only; reproducing their phrases, entities or events is a failure. Do not paraphrase example sentences.", mandatory=True, priority=15))
         if prohibited:
-            sections.append(Section("prohibited", "PROHIBITED SOURCE / FUTURE CONTENT (never reveal, hint or foreshadow)", "\n".join(f"- {p}" for p in prohibited[:40]), mandatory=True, priority=16))
+            sections.append(Section("prohibited", "PROHIBITED SOURCE / FUTURE CONTENT (never reveal, hint or foreshadow)", "\n".join(f"- {p}" for p in prohibited[:PROHIBITED_PROMPT_ITEMS]), mandatory=True, priority=16))
         else:
             sections.append(Section("prohibited", "PROHIBITED SOURCE / FUTURE CONTENT", "- (no additional prohibited facts recorded)", mandatory=True, priority=16))
 
@@ -713,6 +694,68 @@ class ChapterContextCompiler:
         return ctx
 
     # --------------------------------------------------------------- helpers
+    def _by_chapter(self, project_id: int, type_name: str) -> Dict[int, Card]:
+        """Cards of a chapter-numbered type indexed by chapter (one query per type per compile)."""
+        key = (project_id, type_name)
+        cached = self._chapter_index.get(key)
+        if cached is None:
+            cached = {}
+            for card in self.bible.cards_of_type(project_id, type_name):
+                try:
+                    n = int(_c(card).get("chapter_number") or 0)
+                except (TypeError, ValueError):
+                    continue
+                if n > 0 and n not in cached:
+                    cached[n] = card
+            self._chapter_index[key] = cached
+        return cached
+
+    def _future_outlines(self, project_id: int, chapter_number: int, *, exclude: Optional[int] = None) -> List[Card]:
+        """Outlines of the next ``FUTURE_OUTLINE_WINDOW`` chapters, nearest first."""
+        index = self._by_chapter(project_id, "Chapter Outline")
+        out: List[Card] = []
+        for n in range(chapter_number + 1, chapter_number + 1 + FUTURE_OUTLINE_WINDOW):
+            card = index.get(n)
+            if card is not None and card.id != exclude:
+                out.append(card)
+        return out
+
+    @staticmethod
+    def _future_forbidden(future_outlines: Sequence[Card], planned: Sequence[str], chapter_number: int) -> List[str]:
+        """Forbidden outcomes derived from nearby upcoming outlines.
+
+        Only *outcomes* (``allowed_outcomes``, ``reveals``, ``payoffs``) and the first
+        beats of each upcoming chapter are used, and anything the current chapter also
+        plans (recurring scene templates, overlapping outcomes) is skipped by matching
+        it as a proposition against this chapter's planned statements.
+        """
+        if not future_outlines:
+            return []
+        planned_text = "\n".join(str(p) for p in planned)
+        planned_index = spoilers.SentenceIndex.build(planned_text, language="en") if planned_text.strip() else None
+        out: List[str] = []
+        for card in future_outlines:
+            c = _c(card)
+            n = int(c.get("chapter_number") or 0)
+            candidates: List[str] = []
+            for x in (c.get("allowed_outcomes") or []) + (c.get("reveals") or []) + (c.get("payoffs") or []):
+                if str(x).strip():
+                    candidates.append(str(x))
+            for b in (c.get("beats") or [])[:FUTURE_OUTLINE_BEATS_PER_CHAPTER]:
+                desc = (b.get("description") or b.get("text")) if isinstance(b, dict) else b
+                if desc and str(desc).strip():
+                    candidates.append(str(desc))
+            for text in candidates:
+                stmt = spoilers.compile_statement(text, language="en")
+                if not stmt.matchable:
+                    continue  # too vague to ever be verified against prose; would only add noise
+                if planned_index is not None and spoilers.match_statement(planned_index, stmt) is not None:
+                    continue  # this chapter plans the same thing
+                out.append(f"(ch.{n}) {_trim(text, 160)}")
+                if len(out) >= FUTURE_OUTLINE_MAX_ITEMS:
+                    return out
+        return out
+
     def _entity_card(self, project_id: int, key: str) -> Optional[Card]:
         for type_name in ("Organization Card", "Scene Card", "Item Card", "Concept Card"):
             for card in self.bible.cards_of_type(project_id, type_name):
@@ -721,20 +764,13 @@ class ChapterContextCompiler:
         return None
 
     def _state_packet(self, project_id: int, chapter_number: int) -> Optional[Dict[str, Any]]:
-        if chapter_number < 1:
-            return None
-        for card in self.bible.cards_of_type(project_id, "Chapter State Packet"):
-            if int(_c(card).get("chapter_number") or 0) == int(chapter_number):
-                return _c(card)
-        return None
+        card = self._state_packet_card(project_id, chapter_number)
+        return _c(card) if card is not None else None
 
     def _state_packet_card(self, project_id: int, chapter_number: int) -> Optional[Card]:
         if chapter_number < 1:
             return None
-        for card in self.bible.cards_of_type(project_id, "Chapter State Packet"):
-            if int(_c(card).get("chapter_number") or 0) == int(chapter_number):
-                return card
-        return None
+        return self._by_chapter(project_id, "Chapter State Packet").get(int(chapter_number))
 
     def _story_memory(self, project_id: int, chapter_number: int) -> Optional[Dict[str, Any]]:
         """Story So Far compiled from Chapter Digests. Degradable: returns None when there are no digests or memory fails."""
