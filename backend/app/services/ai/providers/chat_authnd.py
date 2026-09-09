@@ -218,7 +218,7 @@ class ChatAuthND(BaseChatModel):
     ) -> ChatResult:
         result = authnd_auth.send_chat_completion(
             messages=self._convert_messages(messages),
-            stream=True,
+            stream=False,
             control=kwargs.get("control"),
             **self._request_kwargs(**kwargs),
         )

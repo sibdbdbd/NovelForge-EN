@@ -189,24 +189,7 @@ def build_prompt(arch: Dict[str, Any], *, chapters: Sequence[int], total: int, w
     parts.append(f"\n[TASK]\nPlan chapters {chapters[0]}-{chapters[-1]} of {total}. Target length per chapter: about {word_target} words. Produce one blueprint per chapter, in order, each with 4-8 beats.")
     if problems and drafts is not None:
         parts += ["\n[PREVIOUS BLUEPRINTS FAILED VALIDATION — fix ONLY these problems, keep everything else]"] + [f"- ch {p.get('chapter')}: {p['message']}" for p in problems[:30]]
-        problem_chapters = {int(p.get("chapter")) for p in problems if p.get("chapter")}
-        compact_drafts = []
-        for d in drafts:
-            cn = int(d.get("chapter_number") or 0)
-            if cn in problem_chapters:
-                compact_drafts.append(d)
-            else:
-                compact_drafts.append({
-                    "chapter_number": cn,
-                    "title": d.get("title"),
-                    "overview": d.get("overview"),
-                    "pov": d.get("pov"),
-                    "beats": [b.get("description") for b in (d.get("beats") or []) if b.get("description")],
-                    "payoffs": d.get("payoffs") or [],
-                    "reveals": d.get("reveals") or [],
-                    "closing_hook": d.get("closing_hook"),
-                })
-        parts += ["\n[PREVIOUS BLUEPRINTS]", json.dumps(compact_drafts, ensure_ascii=False)[:16000]]
+        parts += ["\n[PREVIOUS BLUEPRINTS]", json.dumps(list(drafts), ensure_ascii=False)[:50000]]
     return "\n".join(parts)
 
 
