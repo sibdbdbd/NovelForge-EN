@@ -117,6 +117,7 @@
       :current-content="wrapperName ? innerData : localData"
       :current-context-templates="localAiContextTemplates"
       @restore="handleRestoreVersion"
+      @restored="handleServerRestored"
     />
 
     <SchemaStudio v-model:visible="schemaStudioVisible" :mode="'card'" :target-id="props.card.id" :context-title="props.card.title" @saved="onSchemaSaved" />
@@ -1379,6 +1380,21 @@ async function handleRestoreVersion(v: any) {
   })
   ElMessage.success(t('card.versionRestoredAutoSaving'))
   await handleSave()
+}
+
+async function handleServerRestored(card: any) {
+  // The backend already wrote the restored content (and kept the replaced text in history);
+  // only the editor's local state needs to catch up.
+  showVersions.value = false
+  const content = card?.content
+  if (activeContentEditor.value && contentEditorRef.value && typeof contentEditorRef.value.restoreContent === 'function') {
+    try { await contentEditorRef.value.restoreContent(content) } catch (e) { console.error('Failed to load restored content into the editor:', e) }
+  } else if (wrapperName.value) {
+    innerData.value = content
+  } else {
+    localData.value = content
+  }
+  try { await cardStore.fetchCards(projectStore.currentProject!.id!) } catch { /* list refresh is best effort */ }
 }
 
 async function onSchemaSaved() {

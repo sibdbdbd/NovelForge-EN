@@ -104,3 +104,29 @@ export const exportCardsForProject = async (projectId: number, data: CardExportR
     contentType
   }
 }
+
+// --- Server-side revisions (snapshots taken before every overwrite) ---
+export interface CardRevisionRead {
+  id: number
+  card_id: number
+  project_id: number
+  card_type_name: string
+  title: string
+  content_hash: string
+  reason: string
+  actor: string
+  chapter_number?: number | null
+  word_count: number
+  note?: string | null
+  created_at: string | null
+  content?: any
+}
+
+const quiet = { showLoading: false }
+
+export const listCardRevisions = (cardId: number, limit = 50): Promise<CardRevisionRead[]> =>
+  request.get(`/cards/${cardId}/revisions`, { limit }, '/api', quiet)
+export const getCardRevision = (cardId: number, revisionId: number): Promise<CardRevisionRead> =>
+  request.get(`/cards/${cardId}/revisions/${revisionId}`, undefined, '/api', quiet)
+export const restoreCardRevision = (cardId: number, revisionId: number): Promise<CardRead> =>
+  request.post(`/cards/${cardId}/revisions/${revisionId}/restore`, {}, '/api', quiet)

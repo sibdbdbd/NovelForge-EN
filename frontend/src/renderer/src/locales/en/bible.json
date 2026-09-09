@@ -22,7 +22,8 @@
       "updates": "Update Review",
       "audits": "Audits",
       "forge": "Forge Pipeline",
-      "memory": "Story Memory"
+      "memory": "Story Memory",
+      "charter": "Story Charter"
     },
     "empty": {
       "section": "Nothing here yet.",

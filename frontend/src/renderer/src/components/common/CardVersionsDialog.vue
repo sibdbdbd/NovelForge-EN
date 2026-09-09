@@ -1,5 +1,40 @@
 ﻿<template>
   <el-dialog v-model="visible" :title="t('card.versionsTitle')" width="80%">
+    <el-tabs v-model="tab" class="tabs">
+      <el-tab-pane :label="t('card.serverHistoryTab')" name="server">
+        <div class="toolbar">
+          <el-button size="small" @click="reloadServer">{{ t('common.refresh') }}</el-button>
+          <span class="tip">{{ t('card.serverHistoryTip') }}</span>
+        </div>
+        <el-table :data="revisions" style="width:100%" height="50vh" size="small" v-loading="serverLoading" data-testid="server-revisions">
+          <el-table-column :label="t('card.colTime')" width="180">
+            <template #default="{ row }">{{ row.created_at ? format(row.created_at) : '—' }}</template>
+          </el-table-column>
+          <el-table-column :label="t('card.colReason')" width="190">
+            <template #default="{ row }">
+              <el-tag size="small" effect="plain" :type="reasonType(row.reason)">{{ t('card.revisionReason.' + row.reason, row.reason) }}</el-tag>
+              <el-tag size="small" effect="plain" class="actor">{{ row.actor }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column :label="t('card.colWords')" width="90" align="right">
+            <template #default="{ row }">{{ row.word_count || '—' }}</template>
+          </el-table-column>
+          <el-table-column :label="t('card.colNote')" min-width="220">
+            <template #default="{ row }"><span class="summary">{{ row.note || row.title }}</span></template>
+          </el-table-column>
+          <el-table-column :label="t('common.actions')" width="200">
+            <template #default="{ row }">
+              <el-button size="small" @click="previewServer(row)">{{ t('common.preview') }}</el-button>
+              <el-popconfirm :title="t('card.restoreServerConfirm')" @confirm="restoreServer(row)">
+                <template #reference>
+                  <el-button size="small" type="primary">{{ t('card.restoreBtn') }}</el-button>
+                </template>
+              </el-popconfirm>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-tab-pane>
+      <el-tab-pane :label="t('card.localHistoryTab')" name="local">
     <div class="toolbar">
       <el-button size="small" @click="reload">{{ t('common.refresh') }}</el-button>
       <el-popconfirm :title="t('card.clearAllConfirm')" @confirm="clearAll">
@@ -41,6 +76,8 @@
         </template>
       </el-table-column>
     </el-table>
+      </el-tab-pane>
+    </el-tabs>
 
     <template #footer>
       <el-button @click="visible=false">{{ t('common.close') }}</el-button>
@@ -80,20 +117,24 @@
 import { ref, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { listVersions, clearVersions, deleteVersion, type CardVersionSnapshot } from '@renderer/services/versionService'
+import { getCardRevision, listCardRevisions, restoreCardRevision, type CardRevisionRead } from '@renderer/api/cards'
 import { ElMessage } from 'element-plus'
 import { cloneContextTemplates, CONTEXT_TEMPLATE_LABELS, type ContextTemplates } from '@renderer/services/contextSlots'
 
 const { t } = useI18n()
 
 const props = defineProps<{ projectId: number; cardId: number; modelValue: boolean; currentContent: any; currentContextTemplates: ContextTemplates }>()
-const emit = defineEmits(['update:modelValue','restore'])
+const emit = defineEmits(['update:modelValue', 'restore', 'restored'])
 
 const visible = ref(props.modelValue)
-watch(() => props.modelValue, v => visible.value = v)
+watch(() => props.modelValue, v => { visible.value = v; if (v) reloadServer() })
 watch(visible, v => emit('update:modelValue', v))
 
+const tab = ref<'server' | 'local'>('server')
 const versions = ref<CardVersionSnapshot[]>([])
 const loading = ref(false)
+const revisions = ref<CardRevisionRead[]>([])
+const serverLoading = ref(false)
 
 function reload() {
   loading.value = true
@@ -101,7 +142,41 @@ function reload() {
   loading.value = false
 }
 
-watch(() => props.cardId, reload, { immediate: true })
+async function reloadServer() {
+  if (!props.cardId) return
+  serverLoading.value = true
+  try { revisions.value = await listCardRevisions(props.cardId) } catch { revisions.value = [] } finally { serverLoading.value = false }
+}
+
+function reasonType(reason: string) {
+  if (reason === 'user_save' || reason === 'restore') return 'success'
+  if (reason === 'pipeline_regenerate' || reason === 'global_repair' || reason === 'ai_generation') return 'warning'
+  return 'info'
+}
+
+async function previewServer(row: CardRevisionRead) {
+  try {
+    const full = await getCardRevision(props.cardId, row.id)
+    selectedText.value = JSON.stringify(full.content ?? {}, null, 2)
+    selectedCtx.value = cloneContextTemplates()
+    drawerVisible.value = true
+  } catch (e: any) {
+    ElMessage.error(e?.message || String(e))
+  }
+}
+
+async function restoreServer(row: CardRevisionRead) {
+  try {
+    const card = await restoreCardRevision(props.cardId, row.id)
+    ElMessage.success(t('card.restoreServerSuccess'))
+    emit('restored', card)
+    await reloadServer()
+  } catch (e: any) {
+    ElMessage.error(e?.message || String(e))
+  }
+}
+
+watch(() => props.cardId, () => { reload(); reloadServer() }, { immediate: true })
 
 function format(iso: string) { return new Date(iso).toLocaleString() }
 function summarize(content: any) {
