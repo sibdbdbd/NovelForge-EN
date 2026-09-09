@@ -10,6 +10,8 @@
 
 from __future__ import annotations
 
+import sqlite3
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
@@ -91,12 +93,64 @@ def auto_add_missing_columns(engine: Engine, only_tables: Optional[frozenset] = 
     return added
 
 
-def upgrade_database(engine: Engine) -> dict:
-    """Bring ``engine``'s database to the current head revision."""
+def backup_sqlite_before_migration(engine: Engine, *, keep: int = 5) -> Optional[Path]:
+    """Copy a file-backed SQLite database next to itself before a schema change.
+
+    Uses SQLite's online backup API (consistent even with WAL and open readers),
+    names the copy ``<db>.pre-<from_revision>-<timestamp>.bak`` and prunes to
+    ``keep`` copies. Returns the backup path, or None when there is nothing to
+    back up (in-memory database, fresh file, non-SQLite URL). Never raises: a
+    backup failure is logged and the migration proceeds, because refusing to
+    start would lock the author out of their manuscript entirely.
+    """
+    try:
+        if engine.dialect.name != "sqlite":
+            return None
+        db_path = engine.url.database
+        if not db_path or db_path == ":memory:":
+            return None
+        src = Path(db_path)
+        if not src.exists() or src.stat().st_size == 0 or not _has_user_tables(engine):
+            return None
+        current = current_revision(engine) or "legacy"
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        dest = src.with_name(f"{src.name}.pre-{current}-{stamp}.bak")
+        with sqlite3.connect(str(src)) as source, sqlite3.connect(str(dest)) as target:
+            source.backup(target)
+        backups = sorted(src.parent.glob(f"{src.name}.pre-*.bak"), key=lambda p: p.stat().st_mtime)
+        for old in backups[:-max(1, keep)] if keep > 0 else backups:
+            try:
+                old.unlink()
+            except OSError:
+                pass
+        logger.info(f"[Schema Migration] backup written to {dest.name} before upgrading from {current}")
+        return dest
+    except Exception as exc:  # noqa: BLE001 - see docstring
+        logger.warning(f"[Schema Migration] pre-migration backup skipped: {exc}")
+        return None
+
+
+def upgrade_database(engine: Engine, *, backup: Optional[bool] = None) -> dict:
+    """Bring ``engine``'s database to the current head revision.
+
+    When the database is behind head (or legacy) and backups are enabled, a
+    consistent copy is written first so a failed or unwanted migration can be
+    rolled back by restoring the file.
+    """
     cfg = alembic_config(engine)
     before = current_revision(engine)
     legacy = before is None and _has_user_tables(engine)
-    result = {"before": before, "legacy": legacy, "added_columns": [], "after": None}
+    result = {"before": before, "legacy": legacy, "added_columns": [], "after": None, "backup": None}
+    if backup is None:
+        from app.core.config import settings
+
+        backup = bool(settings.data_safety.backup_before_migration)
+        keep = int(settings.data_safety.keep_migration_backups)
+    else:
+        keep = 5
+    if backup and (legacy or (before is not None and before != head_revision())):
+        path = backup_sqlite_before_migration(engine, keep=keep)
+        result["backup"] = str(path) if path else None
     with engine.connect() as conn:
         cfg.attributes["connection"] = conn
         if legacy:

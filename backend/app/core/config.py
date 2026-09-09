@@ -156,7 +156,7 @@ class AppSettings(BaseSettings):
     app_name: str = Field(default="NovelForge", alias="APP_NAME")
     
     # Application version
-    app_version: str = Field(default="0.12.0", alias="APP_VERSION")
+    app_version: str = Field(default="0.13.0", alias="APP_VERSION")
     
     # Whether to enable debug mode
     debug: bool = Field(default=False, alias="DEBUG")
@@ -259,6 +259,24 @@ class AutonomousSettings(BaseSettings):
     )
 
 
+class DataSafetySettings(BaseSettings):
+    """Backups and revision history that protect the author's manuscript."""
+
+    # Copy the SQLite file before applying schema migrations (kept next to the database).
+    backup_before_migration: bool = Field(default=True, alias="NOVELFORGE_BACKUP_BEFORE_MIGRATION")
+    # How many pre-migration backups to keep (oldest pruned first).
+    keep_migration_backups: int = Field(default=5, alias="NOVELFORGE_KEEP_MIGRATION_BACKUPS")
+    # Server-side content snapshots per card taken before overwrites; 0 disables snapshots.
+    max_revisions_per_card: int = Field(default=40, alias="NOVELFORGE_MAX_REVISIONS_PER_CARD")
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+
 class Settings:
     """Global configuration object"""
     
@@ -271,6 +289,7 @@ class Settings:
         self.workflow = WorkflowSettings()
         self.autonomous = AutonomousSettings()
         self.context = ContextSettings()
+        self.data_safety = DataSafetySettings()
         self.app = AppSettings()
     
     def __repr__(self) -> str:

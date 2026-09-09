@@ -15,7 +15,9 @@
     "preferences": "Optional preferences",
     "pref": {
       "genre": "Genre", "genre_intensity": "Genre intensity", "content_rating": "Content rating", "ending_preference": "Ending preference", "romance_level": "Romance level",
-      "words_per_chapter": "Words per chapter", "target_chapters": "Target chapters (approx.)", "storyline_count": "Storyline options", "title": "Working title", "author": "Author name", "notes": "Notes for the ideator",
+      "words_per_chapter": "Words per chapter", "target_chapters": "Target chapters (approx.)", "storyline_count": "Storyline options", "title": "Working title", "author": "Author name", "notes": "Additional requirements",
+      "notes_placeholder": "Anything the novel must honour that the brief does not already say; becomes a fixed requirement.",
+      "leaveOpen": "Leave open",
       "protagonist_name": "Main character name", "protagonist_placeholder": "e.g. Lucen Rooke",
       "summary": "Basic novel premise / summary", "summary_placeholder": "e.g. A corporate accountant transmigrates into an indebted noble heir and uses forensic ledger analysis...",
       "tags": "Tags / Tropes", "tags_placeholder": "e.g. Transmigration, Academy, Economics, Politics",
@@ -26,6 +28,13 @@
         "moderate": "Moderate (25–35% similarity — balanced thematic homage)",
         "close": "Close (35–45% similarity — parallel arc beats)"
       }
+    },
+    "prefNote": "Everything you fill in here becomes a fixed requirement in the novel's Story Charter. Anything you leave empty stays an open choice the planner may decide — nothing is silently defaulted.",
+    "brief": {
+      "title": "Describe the novel you want",
+      "hint": "A sentence or several pages — protagonist, world, progression, relationships, tone, themes, structure, boundaries, length, ending, and what you want to leave open.",
+      "placeholder": "e.g. A disgraced court accountant discovers the empire's magic runs on debt. I want a scheming, dry-humoured protagonist who wins with ledgers before swords, a visible power tier system, no love triangle, chapters that end on hooks. I have not decided the ending or whether the mentor survives.",
+      "charterNote": "Your brief and preferences are saved as the project's Story Charter: visible and editable in the Novel Bible, and sent to every planning and chapter prompt so requirements do not fade after the first chapters."
     },
     "rightsNotice": "Only manuscripts you have the right to analyse are processed. The reference's names, settings, scenes, twists and wording are never reused; only abstract structural qualities inform the new novel.",
     "startAnalysis": "Start analysis",

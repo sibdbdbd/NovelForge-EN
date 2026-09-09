@@ -70,6 +70,8 @@ ROLE_POLICIES: Dict[str, RolePolicy] = {
     "repair_editor": RolePolicy("repair_editor", 0.4, 65536, 2400, 10),
     "whole_novel_editor": RolePolicy("whole_novel_editor", 0.4, 65536, 2400, 10),
     "preflight": RolePolicy("preflight", 0.0, 200, 60, 0),
+    # Story Memory: one structured digest per committed chapter (whole-book memory for later chapters).
+    "digest_extractor": RolePolicy("digest_extractor", 0.2, 8000, 600, 3),
     # Prose Craft roles (scene-by-scene drafting, adversarial critic, surgical polish, hook sharpening).
     "scene_planner": RolePolicy("scene_planner", 0.4, 16000, 900, 6),
     "webnovel_critic": RolePolicy("webnovel_critic", 0.2, 16000, 900, 6),
@@ -514,7 +516,11 @@ class LLMModelClient:
 
 
 class ForgeDrafterAdapter:
-    """Adapts a ``ModelClient`` to the Forge ``Drafter`` protocol used by ``pipeline.run_chapter``."""
+    """Adapts a ``ModelClient`` to the Forge ``Drafter`` protocol used by ``pipeline.run_chapter``.
+
+    The recorded ``prompt_version`` is ``<role-label>#<hash of the system prompt>`` so a Prompt
+    Workshop edit of the draft/repair prompt is visible in the telemetry of the runs it affected.
+    """
 
     def __init__(self, client: ModelClient, *, stage: str = "CHAPTER_GENERATION_LOOP"):
         self.client = client
@@ -524,9 +530,10 @@ class ForgeDrafterAdapter:
         from app.services.forge.craft.prompts import CRITIC_PROMPT_VERSION, HOOK_PROMPT_VERSION, POLISH_PROMPT_VERSION, SCENE_PLAN_PROMPT_VERSION
         from app.services.forge.pipeline import DRAFT_PROMPT_VERSION, REPAIR_PROMPT_VERSION
 
-        versions = {"drafting": DRAFT_PROMPT_VERSION, "repair": REPAIR_PROMPT_VERSION, "scene_planner": SCENE_PLAN_PROMPT_VERSION, "critic": CRITIC_PROMPT_VERSION, "polish": POLISH_PROMPT_VERSION, "hook": HOOK_PROMPT_VERSION}
+        labels = {"drafting": DRAFT_PROMPT_VERSION, "repair": REPAIR_PROMPT_VERSION, "scene_planner": SCENE_PLAN_PROMPT_VERSION, "critic": CRITIC_PROMPT_VERSION, "polish": POLISH_PROMPT_VERSION, "hook": HOOK_PROMPT_VERSION}
         auto_role = FORGE_ROLE_MAP.get(role, role)
-        return await self.client.text(role=auto_role, system_prompt=system_prompt, user_prompt=user_prompt, prompt_version=versions.get(role, REPAIR_PROMPT_VERSION), stage=f"{self.stage}:ch{getattr(context, 'chapter_number', '?')}")
+        version = f"{labels.get(role, REPAIR_PROMPT_VERSION)}#{_sha(system_prompt)[:10]}"
+        return await self.client.text(role=auto_role, system_prompt=system_prompt, user_prompt=user_prompt, prompt_version=version, stage=f"{self.stage}:ch{getattr(context, 'chapter_number', '?')}")
 
 
 def validate_or_raise(schema: Type[T], data: Any) -> T:

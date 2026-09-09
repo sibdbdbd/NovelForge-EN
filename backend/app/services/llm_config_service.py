@@ -3,7 +3,42 @@ from urllib.parse import urljoin
 from sqlmodel import Session, select
 
 from app.db.models import LLMConfig
-from app.schemas.llm_config import LLMConfigCreate, LLMConfigUpdate
+from app.schemas.llm_config import LLMConfigCreate, LLMConfigRead, LLMConfigUpdate
+
+# Credentials never leave the backend in clear text. Reads return this prefix plus the last four
+# characters so the author can recognise which key is configured; writes that carry a masked value
+# keep the stored key. ``resolve_api_key`` lets the test/model-list endpoints use the stored key.
+API_KEY_MASK_PREFIX = "••••"
+
+
+def mask_api_key(key: str | None) -> str | None:
+    if key is None:
+        return None
+    raw = str(key)
+    if not raw.strip():
+        return ""
+    return f"{API_KEY_MASK_PREFIX}{raw[-4:]}" if len(raw) > 4 else API_KEY_MASK_PREFIX
+
+
+def is_masked_key(value: object) -> bool:
+    return isinstance(value, str) and value.startswith(API_KEY_MASK_PREFIX)
+
+
+def to_read_model(cfg: LLMConfig) -> LLMConfigRead:
+    data = cfg.model_dump()
+    data["api_key"] = mask_api_key(cfg.api_key)
+    return LLMConfigRead.model_validate(data)
+
+
+def resolve_api_key(session: Session, *, api_key: str | None, config_id: int | None) -> str:
+    """The key to use for a request: the stored key when the client sent a masked value (or none) with a config id."""
+    if api_key and not is_masked_key(api_key):
+        return api_key
+    if config_id is not None:
+        cfg = session.get(LLMConfig, int(config_id))
+        if cfg and cfg.api_key:
+            return cfg.api_key
+    return "" if is_masked_key(api_key) else (api_key or "")
 
 
 def _normalize_protocol(value: str | None) -> str:
@@ -150,6 +185,9 @@ def update_llm_config(session: Session, config_id: int, config_in: LLMConfigUpda
         return None
 
     update_data = config_in.model_dump(exclude_unset=True)
+    # The frontend only ever sees a masked key; a masked (or untouched) value means "keep the stored key".
+    if "api_key" in update_data and is_masked_key(update_data.get("api_key")):
+        update_data.pop("api_key")
     for key, value in update_data.items():
         setattr(db_config, key, value)
     _sync_legacy_base_url(db_config)

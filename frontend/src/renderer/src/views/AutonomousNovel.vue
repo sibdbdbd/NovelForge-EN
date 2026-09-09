@@ -59,8 +59,19 @@
           </el-form-item>
         </div>
         <p class="muted craft-hint">{{ t('craft.presetHint.' + (form.craft_preset || qualityToCraft(form.quality_preset))) }}</p>
+        <el-card shadow="never" class="brief-card" data-testid="brief-card">
+          <template #header>
+            <div class="brief-head">
+              <b>{{ t('autonomous.brief.title') }}</b>
+              <span class="muted">{{ t('autonomous.brief.hint') }}</span>
+            </div>
+          </template>
+          <el-input v-model="form.summary" type="textarea" :autosize="{ minRows: 4, maxRows: 18 }" :placeholder="t('autonomous.brief.placeholder')" data-testid="brief-input" />
+          <p class="muted brief-note">{{ t('autonomous.brief.charterNote') }}</p>
+        </el-card>
         <el-collapse class="prefs">
           <el-collapse-item :title="t('autonomous.preferences')">
+            <p class="muted pref-note">{{ t('autonomous.prefNote') }}</p>
             <div class="grid">
               <el-form-item :label="t('autonomous.pref.similarity_to_original')">
                 <el-select v-model="form.similarity_to_original" clearable>
@@ -74,16 +85,15 @@
               <el-form-item :label="t('autonomous.pref.tags')"><el-input v-model="form.tags" :placeholder="t('autonomous.pref.tags_placeholder')" /></el-form-item>
               <el-form-item :label="t('autonomous.pref.genre_intensity')"><el-select v-model="form.genre_intensity" clearable><el-option v-for="v in ['subtle', 'moderate', 'intense']" :key="v" :value="v" :label="v" /></el-select></el-form-item>
               <el-form-item :label="t('autonomous.pref.content_rating')"><el-select v-model="form.content_rating" clearable><el-option v-for="v in ['all ages', 'teen', 'mature']" :key="v" :value="v" :label="v" /></el-select></el-form-item>
-              <el-form-item :label="t('autonomous.pref.ending_preference')"><el-select v-model="form.ending_preference" clearable><el-option v-for="v in ['triumphant', 'bittersweet', 'tragic', 'open', 'no preference']" :key="v" :value="v" :label="v" /></el-select></el-form-item>
-              <el-form-item :label="t('autonomous.pref.romance_level')"><el-select v-model="form.romance_level" clearable><el-option v-for="v in ['none', 'subplot', 'central']" :key="v" :value="v" :label="v" /></el-select></el-form-item>
+              <el-form-item :label="t('autonomous.pref.ending_preference')"><el-select v-model="form.ending_preference" clearable :placeholder="t('autonomous.pref.leaveOpen')"><el-option v-for="v in ['triumphant', 'bittersweet', 'tragic', 'open', 'no preference']" :key="v" :value="v" :label="v" /></el-select></el-form-item>
+              <el-form-item :label="t('autonomous.pref.romance_level')"><el-select v-model="form.romance_level" clearable :placeholder="t('autonomous.pref.leaveOpen')"><el-option v-for="v in ['none', 'subplot', 'central']" :key="v" :value="v" :label="v" /></el-select></el-form-item>
               <el-form-item :label="t('autonomous.pref.words_per_chapter')"><el-input-number v-model="form.words_per_chapter" :min="300" :max="20000" :step="100" /></el-form-item>
               <el-form-item :label="t('autonomous.pref.target_chapters')"><el-input-number v-model="form.target_chapters" :min="1" :max="2000" :step="10" placeholder="e.g. 50, 100, 400" /></el-form-item>
               <el-form-item :label="t('autonomous.pref.storyline_count')"><el-input-number v-model="form.storyline_count" :min="5" :max="10" /></el-form-item>
               <el-form-item :label="t('autonomous.pref.title')"><el-input v-model="form.title" /></el-form-item>
               <el-form-item :label="t('autonomous.pref.author')"><el-input v-model="form.author" /></el-form-item>
             </div>
-            <el-form-item :label="t('autonomous.pref.summary')"><el-input v-model="form.summary" type="textarea" :rows="2" :placeholder="t('autonomous.pref.summary_placeholder')" /></el-form-item>
-            <el-form-item :label="t('autonomous.pref.notes')"><el-input v-model="form.notes" type="textarea" :rows="2" /></el-form-item>
+            <el-form-item :label="t('autonomous.pref.notes')"><el-input v-model="form.notes" type="textarea" :rows="2" :placeholder="t('autonomous.pref.notes_placeholder')" /></el-form-item>
           </el-collapse-item>
         </el-collapse>
       </el-form>
@@ -381,6 +391,14 @@ onMounted(async () => {
 .hero h1 { margin: 0 0 4px; font-size: 24px; }
 .subtitle, .muted { color: var(--el-text-color-secondary); font-size: 13px; }
 .craft-hint { margin: -6px 0 6px; font-size: 12px; }
+.brief-card { margin-bottom: 10px; }
+.brief-card :deep(.el-card__header) { padding: 10px 14px; }
+.brief-card :deep(.el-card__body) { padding: 12px 14px; }
+.brief-head { display: flex; flex-direction: column; gap: 2px; }
+.brief-head b { font-size: 15px; }
+.brief-head .muted { font-size: 12px; line-height: 1.4; }
+.brief-note, .pref-note { margin: 6px 0 0; font-size: 12px; }
+.pref-note { margin: 0 0 8px; }
 .hero-actions { display: flex; gap: 8px; align-items: center; }
 .job-select { width: 320px; }
 .steps { margin: 4px 0; }

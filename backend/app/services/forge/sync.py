@@ -30,6 +30,7 @@ from sqlmodel import Session, select
 
 from app.db.models import Card, CardType, ProjectManifest
 from app.schemas.card import CardCreate
+from app.services.bible import author_locks
 from app.services.bible.bible_service import BibleService
 from app.services.card_service import CardService
 from app.services.forge import canon as canon_store
@@ -273,9 +274,11 @@ def synchronize_chapter(
             c = card.content if isinstance(card.content, dict) else {}
             payoff = _norm(c.get("planned_payoff"))
             if c.get("status") in ("planted", "active", "open", "planned") and payoff and payoff in " ".join(_norm(o) for o in allowed_outcomes):
-                c["status"] = "paid_off"
-                c["payoff_chapter"] = chapter_number
-                c.setdefault("history", []).append({"field": "status", "previous": "planted", "new": "paid_off", "chapter_number": chapter_number, "changed_at": now, "accepted_by": "ai", "reason": "planned payoff listed among this chapter's allowed outcomes"})
+                allowed = author_locks.guard(c, {"status": "paid_off", "payoff_chapter": chapter_number}, source="sync", chapter_number=chapter_number, reason="planned payoff listed among this chapter's allowed outcomes")
+                if "status" in allowed:
+                    c["status"] = "paid_off"
+                    c["payoff_chapter"] = chapter_number
+                    c.setdefault("history", []).append({"field": "status", "previous": "planted", "new": "paid_off", "chapter_number": chapter_number, "changed_at": now, "accepted_by": "ai", "reason": "planned payoff listed among this chapter's allowed outcomes"})
                 card.content = c
                 flag_modified(card, "content")
                 session.add(card)
@@ -287,8 +290,10 @@ def synchronize_chapter(
                 c = card.content if isinstance(card.content, dict) else {}
                 if _norm(f"{c.get('character_a')} ↔ {c.get('character_b')}") == _norm(p.subject) or _norm(card.title) == _norm(p.subject):
                     prev = c.get(p.attribute)
-                    c[p.attribute] = p.value
-                    c.setdefault("history", []).append({"field": p.attribute, "previous": prev, "new": p.value, "chapter_number": chapter_number, "changed_at": now, "accepted_by": "ai", "reason": p.reason})
+                    allowed = author_locks.guard(c, {p.attribute: p.value}, source="sync", chapter_number=chapter_number, reason=p.reason)
+                    if p.attribute in allowed:
+                        c[p.attribute] = p.value
+                        c.setdefault("history", []).append({"field": p.attribute, "previous": prev, "new": p.value, "chapter_number": chapter_number, "changed_at": now, "accepted_by": "ai", "reason": p.reason})
                     card.content = c
                     flag_modified(card, "content")
                     session.add(card)
@@ -298,6 +303,8 @@ def synchronize_chapter(
                 continue
             for card in bible.cards_of_type(project_id, "Knowledge Fact"):
                 c = card.content if isinstance(card.content, dict) else {}
+                if author_locks.is_locked(c, "knowers"):
+                    continue
                 fact = _norm(c.get("fact"))
                 for learned in (p.value.get("add") if isinstance(p.value, dict) else [p.value]):
                     if fact and (fact in _norm(learned) or _norm(learned) in fact):

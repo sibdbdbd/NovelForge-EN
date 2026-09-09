@@ -15,7 +15,9 @@
     "preferences": "可选偏好",
     "pref": {
       "genre": "类型", "genre_intensity": "类型强度", "content_rating": "内容分级", "ending_preference": "结局偏好", "romance_level": "感情线比重",
-      "words_per_chapter": "每章字数", "target_chapters": "目标章节数（约）", "storyline_count": "故事线数量", "title": "暂定书名", "author": "作者名", "notes": "给构思模型的备注",
+      "words_per_chapter": "每章字数", "target_chapters": "目标章节数（约）", "storyline_count": "故事线数量", "title": "暂定书名", "author": "作者名", "notes": "补充要求",
+      "notes_placeholder": "简介中未提及、但小说必须遵守的内容；会成为固定要求。",
+      "leaveOpen": "暂不决定",
       "protagonist_name": "主角姓名", "protagonist_placeholder": "例如：卢森·鲁克",
       "summary": "基本小说梗概 / 核心设定", "summary_placeholder": "例如：审计师穿越到负债累累的贵族子弟身上，依靠账目审计扭转乾坤...",
       "tags": "题材标签 / 元素", "tags_placeholder": "例如：穿越、学院、权谋、种田",
@@ -26,6 +28,13 @@
         "moderate": "适中（25–35% 相似度 — 风格致敬与平衡）",
         "close": "紧密（35–45% 相似度 — 平行剧情脉络）"
       }
+    },
+    "prefNote": "此处填写的每一项都会成为本书「故事章程」中的固定要求；留空的项目将保持为开放选择，由规划阶段决定——不会被悄悄设为默认值。",
+    "brief": {
+      "title": "描述你想要的小说",
+      "hint": "一句话或几页纸都可以——主角、世界、成长体系、人物关系、语气、主题、结构、内容边界、篇幅、结局，以及你想刻意留白的部分。",
+      "placeholder": "例如：一位失势的宫廷会计发现帝国的魔法建立在债务之上。我想要一个善于谋划、冷幽默的主角，先用账本再用刀剑取胜；有清晰的实力层级；不要三角恋；每章结尾留钩子。结局和导师是否存活我尚未决定。",
+      "charterNote": "你的简介与偏好会保存为项目的「故事章程」：在小说圣经中可见、可编辑，并随每一次规划与章节提示词发送，因此要求不会在前几章之后淡出。"
     },
     "rightsNotice": "仅处理你有权分析的稿件。参考作品的人名、设定、场景、反转与措辞不会被复用，只有抽象的结构特征会影响新小说。",
     "startAnalysis": "开始分析",

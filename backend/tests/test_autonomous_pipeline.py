@@ -182,6 +182,9 @@ class FakeClient:
             nums = [int(x) for x in user_prompt.split("Plan chapters ")[1].split(" of ")[0].split("-")]
             lo, hi = nums[0], nums[-1]
             return schema.model_validate({"planning_thinking": "windowed", "chapters": [_blueprint(n, self.chapter_total) for n in range(lo, hi + 1)]})
+        if name == "ChapterDigest":
+            n = int(stage.split(":ch")[-1].split(":")[0])
+            return schema.model_validate({"chapter_number": n, "pov": ORIGINAL_NAMES[0], "participants": [ORIGINAL_NAMES[0]], "one_line": f"Chapter {n} in one line.", "summary": f"Digest of chapter {n}.", "ending_state": f"Nadia ends chapter {n} on the quay.", "hooks_opened": [{"hook": f"What did Nadia find in chapter {n}?", "hook_type": "question", "strength": "medium", "expected_payoff_window": "within the arc"}], "dominant_function": "setup"})
         raise AssertionError(f"unexpected schema {name}")
 
     async def text(self, *, role: str, system_prompt: str, user_prompt: str, prompt_version: str, stage: str = "") -> str:
@@ -294,6 +297,18 @@ def test_03_select_storyline_then_architecture_and_plan(fake, state):
         from app.services.forge import transfer
 
         assert transfer.isolation_report(s, job.original_project_id)["isolated"]
+        # The Story Charter was seeded once from the job options and reached the planning prompts.
+        from app.services.story_charter import CharterService
+
+        charter = CharterService(s).get(job.original_project_id)
+        assert charter is not None and charter.source_job_id == job.id
+        assert any(r.text == "Genre: mystery" and r.source == "author" for r in charter.requirements)
+        assert charter.target_chapters == CHAPTERS and charter.words_per_chapter == 260
+        arch_calls = [c for c in fake.calls if c["schema"] == "NovelArchitecture"]
+        plan_calls = [c for c in fake.calls if c["schema"] == "ChapterBlueprintBatch"]
+        assert arch_calls and plan_calls
+        assert all(c["prompt_version"].startswith("Autonomous - Novel Architecture@") for c in arch_calls)
+        assert all(c["prompt_version"].startswith("Autonomous - Chapter Plan@") for c in plan_calls)
 
 
 def test_04_chapter_loop_interrupt_and_resume_without_duplicates(fake, state):
@@ -334,6 +349,18 @@ def test_04_chapter_loop_interrupt_and_resume_without_duplicates(fake, state):
         for _, _, text in texts:
             for name in ("Ilse", "Marit", "Brann", "Greywater", "Tessaly", "Lantern Ward"):
                 assert name not in text
+        # Every committed chapter was digested through the budgeted client so later chapters get whole-book memory.
+        from app.services.story_memory.digest_service import DigestService
+
+        digested = sorted(int(c.content["chapter_number"]) for c in DigestService(s).digest_cards(state["original_pid"]))
+        assert digested == list(range(1, CHAPTERS + 1))
+        loop = job.stage_results["CHAPTER_GENERATION_LOOP"]
+        assert all(loop[str(n)]["memory"]["digested"] for n in range(1, CHAPTERS + 1))
+        digest_calls = [c for c in fake.calls if c["role"] == "digest_extractor"]
+        assert len(digest_calls) == CHAPTERS and digest_calls[0]["stage"].endswith(":digest")
+        # Later chapters' drafts received Story So Far compiled from those digests.
+        draft_calls = [c for c in fake.calls if c["role"] == "drafter"]
+        assert draft_calls and all("#" in c["prompt_version"] for c in draft_calls)
 
 
 def test_05_audit_export_and_reports(client, fake, state):

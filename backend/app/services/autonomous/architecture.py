@@ -29,18 +29,10 @@ from app.services.forge import canon as canon_store
 from app.services.forge import firewall as fw
 from app.services.forge import provenance, transfer
 
-ARCHITECTURE_PROMPT_VERSION = "autonomous-architecture-1"
+ARCHITECTURE_PROMPT_VERSION = "autonomous-architecture-1"  # legacy label; live runs record the Prompt-table version
 ARCHITECTURE_CARD_TYPE = "Novel Architecture"
 ARCHITECTURE_TITLE = "Novel Architecture"
 MAX_ARCHITECT_ROUNDS = 3
-
-SYSTEM_PROMPT = (
-    "You are the architect of an original novel. Expand the selected storyline into a complete, internally consistent architecture that a chapter planner can "
-    "turn into exactly the requested number of chapters. Invent every name, place, object and event; never reuse anything from the reference novel. "
-    "Every setup must have a payoff chapter, every payoff an earlier setup chapter; character arcs need start/mid/end states with chapter hints; knowledge "
-    "facts list who knows them at the start and when the reader learns them; relationships list both characters by exact name. Use only character names "
-    "that appear in `characters`, and only locations that appear in `locations`. Output must validate against the schema."
-)
 
 
 def _c(card: Optional[Card]) -> Dict[str, Any]:
@@ -293,15 +285,18 @@ def firewall_architecture(arch: Dict[str, Any], profile: Optional[fw.SourceProfi
 
 # ------------------------------------------------------------------ prompt
 
-def build_prompt(storyline: Dict[str, Any], *, chapter_count: int, allocation: List[Dict[str, Any]], fit: Dict[str, Any], brief: str, preferences: Dict[str, Any], problems: Sequence[Dict[str, Any]] = (), previous: Optional[Dict[str, Any]] = None) -> str:
+def build_prompt(storyline: Dict[str, Any], *, chapter_count: int, allocation: List[Dict[str, Any]], fit: Dict[str, Any], brief: str, preferences: Dict[str, Any], problems: Sequence[Dict[str, Any]] = (), previous: Optional[Dict[str, Any]] = None, charter_text: str = "") -> str:
     parts = ["[SELECTED STORYLINE]", json.dumps({k: v for k, v in storyline.items() if k != "schema_version"}, ensure_ascii=False, indent=1)]
     parts += ["\n[CHAPTER COUNT — HARD CONSTRAINT]", f"The novel has exactly {chapter_count} chapters. Allocation of dramatic functions to chapter ranges:"]
     parts += [f"- {a['function']}: chapters {a['chapter_start']}-{a['chapter_end']}" for a in allocation]
     if fit["adaptations"]:
         parts.append("Adapt the storyline to this count by: " + "; ".join(fit["adaptations"]) + ".")
-    prefs = {k: v for k, v in preferences.items() if v not in (None, "", [], {})}
-    if prefs:
-        parts += ["\n[USER PREFERENCES]"] + [f"- {k}: {v}" for k, v in prefs.items()]
+    if charter_text.strip():
+        parts += ["\n[STORY CHARTER — the author's requirements; realise every fixed requirement concretely, keep author-only open choices open]", charter_text.strip()]
+    else:
+        prefs = {k: v for k, v in preferences.items() if v not in (None, "", [], {})}
+        if prefs:
+            parts += ["\n[USER PREFERENCES]"] + [f"- {k}: {v}" for k, v in prefs.items()]
     parts += ["\n[REFERENCE STRUCTURE — abstract, entity-free]", brief]
     parts += ["\n[REQUIREMENTS]", "characters: 5-10 with full fields; the protagonist arc must have start/mid/end with chapter hints. locations: 4-8. knowledge_facts: 4-10 including every secret the plot depends on (use optional clue_chapter and suspicion_chapter before reader_reveal_chapter for progressive mystery foreshadowing). relationships: every pair that matters. plot_threads: one main_plot plus 2-5 subplots with opening and resolution chapters. setups_payoffs: 6-15 with setup_chapter < payoff_chapter <= chapter count. timeline: 8-20 events. act_plan: one line per allocated function."]
     if problems and previous is not None:
@@ -313,12 +308,19 @@ def build_prompt(storyline: Dict[str, Any], *, chapter_count: int, allocation: L
 # --------------------------------------------------------------- card build
 
 def _upsert(session: Session, project_id: int, type_name: str, title: str, content: Dict[str, Any]) -> Card:
+    """Create or replace a generated card. Author-locked fields survive the replace; the previous content is snapshotted."""
+    from app.services import revision_service
+    from app.services.bible import author_locks
+
     ct = _type(session, type_name)
     card = session.exec(select(Card).where(Card.project_id == project_id, Card.card_type_id == ct.id, Card.title == title[:200])).first()
     if card is None:
         card = CardService(session).create(CardCreate(title=title[:200], content=content, card_type_id=ct.id), project_id, commit=False)
     else:
-        card.content = content
+        existing = card.content if isinstance(card.content, dict) else {}
+        merged = author_locks.merge_guarded(existing, content, source="architecture", reason="architecture rebuild")
+        revision_service.snapshot_before_overwrite(session, card, reason="ai_generation", actor="ai", note="architecture / bible build", new_content=merged)
+        card.content = merged
         flag_modified(card, "content")
         session.add(card)
     session.flush()
@@ -417,18 +419,21 @@ def stored_architecture(session: Session, project_id: int) -> Dict[str, Any]:
 
 # ------------------------------------------------------------------- stages
 
-async def stage_novel_architecture(session: Session, *, original_project_id: int, source_project_id: int, storyline: Dict[str, Any], chapter_count: int, client: ModelClient, brief: str, preferences: Dict[str, Any], profile: Optional[fw.SourceProfile]) -> Dict[str, Any]:
+async def stage_novel_architecture(session: Session, *, original_project_id: int, source_project_id: int, storyline: Dict[str, Any], chapter_count: int, client: ModelClient, brief: str, preferences: Dict[str, Any], profile: Optional[fw.SourceProfile], charter_text: str = "") -> Dict[str, Any]:
     """Generate, validate and (if needed) repair the architecture; store it on the original project."""
+    from app.services.ai.prompt_registry import PROMPT_ARCHITECTURE, system_prompt
+
     existing = stored_architecture(session, original_project_id)
     if existing and int(existing.get("chapter_count") or 0) == chapter_count and not validate_architecture(existing, chapter_count=chapter_count):
         return {"reused": True, "problems": [], "rounds": 0, "allocation": allocate_chapters(chapter_count, source_proportions=source_proportions(session, source_project_id))}
     allocation = allocate_chapters(chapter_count, source_proportions=source_proportions(session, source_project_id))
     fit = fit_report(storyline, chapter_count)
+    prompt = system_prompt(session, PROMPT_ARCHITECTURE)
     problems: List[Dict[str, Any]] = []
     previous: Optional[Dict[str, Any]] = None
     arch: Optional[Dict[str, Any]] = None
     for round_no in range(1, MAX_ARCHITECT_ROUNDS + 1):
-        result = await client.structured(role="novel_architect", schema=NovelArchitecture, system_prompt=SYSTEM_PROMPT, user_prompt=build_prompt(storyline, chapter_count=chapter_count, allocation=allocation, fit=fit, brief=brief, preferences=preferences, problems=problems, previous=previous), prompt_version=ARCHITECTURE_PROMPT_VERSION, stage="NOVEL_ARCHITECTURE")
+        result = await client.structured(role="novel_architect", schema=NovelArchitecture, system_prompt=prompt.text, user_prompt=build_prompt(storyline, chapter_count=chapter_count, allocation=allocation, fit=fit, brief=brief, preferences=preferences, problems=problems, previous=previous, charter_text=charter_text), prompt_version=prompt.version, stage="NOVEL_ARCHITECTURE")
         arch = result.model_dump(mode="json")
         problems = validate_architecture(arch, chapter_count=chapter_count) + firewall_architecture(arch, profile)
         if not problems:

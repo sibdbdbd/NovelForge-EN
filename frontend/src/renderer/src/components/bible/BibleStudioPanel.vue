@@ -74,6 +74,7 @@
             <LabImportWizard v-else-if="section === 'lab'" :project-id="projectId" @open-card="(id) => emit('open-card', id)" @imported="refresh" />
             <ForgePipelinePanel v-else-if="section === 'forge'" :project-id="projectId" @open-card="(id) => emit('open-card', id)" />
             <StoryMemoryPanel v-else-if="section === 'memory'" :project-id="projectId" :refresh-seq="refreshSeq" @open-card="(id) => emit('open-card', id)" />
+            <StoryCharterPanel v-else-if="section === 'charter'" :project-id="projectId" @saved="refresh" />
           </div>
         </el-scrollbar>
       </div>
@@ -109,6 +110,7 @@ import BibleUpdateReview from './BibleUpdateReview.vue'
 import KnowledgeMatrix from './KnowledgeMatrix.vue'
 import ForgePipelinePanel from './ForgePipelinePanel.vue'
 import StoryMemoryPanel from './StoryMemoryPanel.vue'
+import StoryCharterPanel from './StoryCharterPanel.vue'
 import LabImportWizard from './LabImportWizard.vue'
 import RelationshipMatrix from './RelationshipMatrix.vue'
 
@@ -117,12 +119,13 @@ const emit = defineEmits<{ (e: 'open-card', id: number): void }>()
 const { t } = useI18n()
 const cardStore = useCardStore()
 
-const CREATE_SECTIONS = ['memory', 'forge', 'foundation', 'characters', 'relationships', 'world', 'threads', 'promises', 'knowledge', 'timeline', 'updates', 'audits']
+// The charter comes first: it is what every plan and chapter is measured against.
+const CREATE_SECTIONS = ['charter', 'memory', 'forge', 'foundation', 'characters', 'relationships', 'world', 'threads', 'promises', 'knowledge', 'timeline', 'updates', 'audits']
 const EXTRACT_SECTIONS = ['lab', 'forge', 'analysis', 'memory', 'characters', 'relationships', 'threads', 'promises', 'knowledge', 'timeline', 'audits']
 const CARD_SECTIONS = new Set(['foundation', 'characters', 'world', 'threads', 'promises', 'timeline', 'analysis'])
 
 const mode = ref<'create' | 'extract'>('create')
-const section = ref<string>(props.initialSection || 'foundation')
+const section = ref<string>(props.initialSection || 'charter')
 const loading = ref(false)
 const dashboard = ref<BibleDashboardResponse | null>(null)
 const relationships = ref<any[]>([])
@@ -193,7 +196,7 @@ watch(() => props.projectId, refresh)
 watch(() => props.refreshSeq, refresh)
 watch(() => props.openReviewId, (id) => { if (id) { mode.value = 'create'; section.value = 'updates' } })
 // Each mode has a natural landing section; switching modes should always start there.
-watch(mode, (m) => { section.value = m === 'create' ? 'foundation' : 'lab' })
+watch(mode, (m) => { section.value = m === 'create' ? 'charter' : 'lab' })
 onMounted(async () => {
   try { const opts = await getAIConfigOptions(); llmConfigs.value = (opts as any)?.llm_configs || [] } catch { /* ignore */ }
   await refresh()

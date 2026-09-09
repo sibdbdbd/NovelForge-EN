@@ -1,13 +1,24 @@
 # Alembic migration chain and duplicate-data safety
 
 ```
-0001_baseline -> 0002_forge -> 0003_autonomous -> 0004_fencing -> 0005_budget_ledger -> 0006_budget_dispatch (head)
+0001_baseline -> 0002_forge -> 0003_autonomous -> 0004_fencing -> 0005_budget_ledger -> 0006_budget_dispatch -> 0007_card_revisions (head)
 ```
 
 `app.db.migrations.upgrade_database(engine)` runs at application startup and in
 `scripts/migration_smoke.py`. Databases with tables but no `alembic_version`
 (pre-Alembic installs) are brought to the baseline shape with the conservative
 add-missing-column pass, stamped `0001_baseline`, then upgraded normally.
+
+## Pre-migration backup
+
+Whenever a file-backed SQLite database is behind head (or legacy),
+`backup_sqlite_before_migration` first copies it next to itself as
+`<db>.pre-<from_revision>-<timestamp>.bak` using SQLite's online backup API
+(consistent even with WAL and open readers). The newest
+`NOVELFORGE_KEEP_MIGRATION_BACKUPS` (default 5) copies are kept. A backup
+failure is logged and the upgrade proceeds — refusing to start would lock the
+author out of their manuscript. `NOVELFORGE_BACKUP_BEFORE_MIGRATION=false`
+disables it (`DataSafetySettings` in `app/core/config.py`).
 
 ## 0004_fencing was amended (why and how)
 
@@ -56,6 +67,19 @@ Pre-existing open ledger rows are conservatively transitioned to `dispatched`
 so recovery never releases capacity that might have reached a provider.
 Supports concurrency-hard CAS repair-call enforcement and conservative worst-case
 charging of dead-worker in-flight requests.
+
+## 0007_card_revisions
+
+Adds the `cardrevision` table: a server-side snapshot of a card's content taken
+**before** every overwrite (author save via `PUT /api/cards/{id}`, pipeline
+commit/regenerate, global repair, architecture upsert, restore). Rows carry
+`reason`, `actor`, `content_hash`, `word_count`, `chapter_number` and an
+optional `note`; identical content is never snapshotted twice in a row and the
+newest `NOVELFORGE_MAX_REVISIONS_PER_CARD` (default 40, `0` disables) are kept
+per card. Restoring a revision first snapshots the current content, so a
+restore is itself undoable. Exposed at `/api/cards/{id}/revisions` and in the
+editor's *Version history → Saved on server* tab. Pure additive migration; no
+existing table changes.
 
 ## Tests
 

@@ -79,6 +79,15 @@ In long-form writing, the greatest challenges are maintaining consistency, ensur
 <a id="core-features"></a>
 ## ✨ Core Features
 
+*   **📜 Story Charter (your requirements, kept alive for the whole novel)**
+    *   Describe the novel you want in a sentence or in pages. The brief and any preferences become the project's **Story Charter**: fixed requirements (*must*) and preferences (*prefer*) with a scope, **open choices** you deliberately have not decided (the system may explore them but never turns them into permanent facts without permission), and content **boundaries**.
+    *   One optional model call **interprets** the brief into editable entries; everything it inferred is visibly tagged so you can correct it. Your own entries are never rewritten.
+    *   The Charter is rendered, scoped, into **every** planning and generation prompt — storyline ideation, novel architecture, every chapter blueprint batch, every Forge draft and repair — so "no love triangle" still holds in chapter 200. A *What the prompts receive* preview shows exactly what each stage is told. An imported reference EPUB informs structure and rhythm only; its names, settings, scenes and phrasing are always off-limits. See [docs/story-charter.md](./docs/story-charter.md).
+
+*   **🛡️ Manuscript safety (nothing is overwritten silently)**
+    *   Every overwrite of a card — your save, an AI regeneration, a global repair, an architecture rebuild — first takes a **server-side snapshot**. *Version history → Saved on server* lists them with the reason, lets you diff and restore, and a restore is itself undoable.
+    *   **Author locks** on Bible ledger fields keep your manual edits from being replaced by automated sync; suppressed updates are recorded instead of applied. A **pre-migration backup** of the SQLite file is written before every schema upgrade. Provider **API keys are masked** in every API response.
+
 *   **✒️ Prose Craft (multi-pass chapter quality engine)**
     *   Chapter generation is no longer one rushed call. Beats are grouped into **scenes**, each drafted with the previous scene's *exact* ending lines, last spoken line and physical positions carried forward, then stitched.
     *   **Subtext packets** compiled from the Bible before any dialogue: what every character present wants from the protagonist in this scene, what they are suppressing, their leverage, tactic, speech cadence and forms of address — plus what the protagonist is likely to misread. A **Protagonist Voice** profile (archetype, inner register vs. outer composure, what they notice first, private humor, self-deception) is stored on the Character Card and injected into every scene.
@@ -134,6 +143,21 @@ In long-form writing, the greatest challenges are maintaining consistency, ensur
 
 ## 📅 Changelog
 <details open>
+<summary>v0.13.0 — Story Charter, whole-book memory in the Forge, manuscript safety</summary>
+
+- **Story Charter** (`Story Charter` singleton card, `StoryCharter` schema): the author's brief (verbatim, never rewritten), scoped requirements (`must` / `prefer` × `whole_novel | planning | characters | world | prose | ending | chapter`), open choices with a `decide_by` policy, boundaries with severity, reference-usage rules, and `source ∈ {author, interpreted, imported}` on every entry. Seeded from the Create Novel form on job creation (`CharterService.ensure_from_job`); an existing charter is authoritative.
+- **Interpret brief**: one structured call (`Story Charter Interpretation` prompt) that only adds what the author has not already fixed; inferred entries are tagged and editable. Ids are assigned server-side and never requested from the model.
+- **Charter in every prompt**: `render_charter(consumer=…)` with per-consumer scopes is injected into storyline ideation (outranks the reference), novel architecture, every chapter-blueprint batch, the Forge compiler (mandatory `story_charter` section at priority 0; hard boundaries join the prohibited list) and repair prompts. `GET /api/story-charter/render` shows what each consumer receives; `POST /api/story-charter/check` is a deterministic conflict scan.
+- **Prompts as product**: the pipeline system prompts (`Forge - Chapter Draft`, `Forge - Chapter Repair`, `Autonomous - Storyline Ideation`, `Autonomous - Novel Architecture`, `Autonomous - Chapter Plan`, `Story Charter Interpretation`) moved from Python string literals into Prompt Workshop-editable `Prompt` rows via `prompt_registry`, with code-owned output contracts appended so edits cannot break parsing. The hardcoded sub-genre voice block that was applied to every chapter regardless of genre is gone; genre and tone now come from the Charter and the Bible.
+- **Story Memory in the Forge**: the Forge compiler (autonomous runs and the Forge panel) now carries a mandatory `story_so_far` section compiled from Chapter Digests plus the Next Chapter Brief; state-packet recaps are kept only for undigested chapters. The autonomous loop digests every committed chapter (`digest_extractor` role).
+- **Server-side card revisions** (`cardrevision`, migration `0007_card_revisions`): a snapshot before every overwrite — author save, pipeline commit/regenerate, global repair, architecture upsert — with reason/actor/word count; restore is itself snapshotted. `GET/POST /api/cards/{id}/revisions[...]`; *Version history → Saved on server* tab with diff preview and restore.
+- **Author locks** on Bible ledger cards (`/api/bible/cards/{id}/locks`): locked fields are skipped by `sync` and architecture upserts, and the suppressed value is recorded in `suppressed_updates` for review.
+- **Pre-migration SQLite backup** (`<db>.pre-<rev>-<stamp>.bak`, newest 5 kept; `NOVELFORGE_BACKUP_BEFORE_MIGRATION`, `NOVELFORGE_KEEP_MIGRATION_BACKUPS`) and **masked API keys** in every `LLMConfig` response (`••••last4`; model-list and test endpoints resolve the stored key by `config_id`).
+- **UI**: Novel Bible → *Story Charter* section (default landing section); Create Novel promotes a free-text brief above the optional preferences; version-history dialog gains the server tab. en / zh-CN.
+- Docs: [docs/story-charter.md](./docs/story-charter.md), updates to [story-memory](./docs/story-memory.md), [security](./docs/security.md), [migrations](./docs/migrations.md). Tests: `test_story_charter.py`, `test_data_safety.py`, additions to `test_autonomous_pipeline.py` / `test_forge_pipeline.py`, `useStoryCharter.test.ts`.
+
+</details>
+<details>
 <summary>v0.12.0 — Prose Craft</summary>
 
 - **Scene-by-scene drafting**: outline beats are grouped into 2–5 scenes (deterministic grouping by function tags / participant changes, or a model plan validated for exact beat coverage). Each scene is drafted with a `[THIS SCENE — k of n]` brief and the previous scene's exact ending lines, last speaker, physical positions and carried tension; intermediate scenes cannot emit chapter metadata; scenes are stitched with the scene-break convention.

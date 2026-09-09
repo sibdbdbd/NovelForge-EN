@@ -29,13 +29,13 @@ def create_llm_config_endpoint(config_in: LLMConfigCreate, session: Session = De
     if config_in.display_name is None or config_in.display_name == "":
         config_in.display_name = config_in.model_name
     config = llm_config_service.create_llm_config(session=session, config_in=config_in)
-    return ApiResponse(data=config)
+    return ApiResponse(data=llm_config_service.to_read_model(config))
 
 
 @router.get("/", response_model=ApiResponse[List[LLMConfigRead]])
 def get_llm_configs_endpoint(session: Session = Depends(get_session)):
     configs = llm_config_service.get_llm_configs(session=session)
-    return ApiResponse(data=configs)
+    return ApiResponse(data=[llm_config_service.to_read_model(c) for c in configs])
 
 
 @router.put("/{config_id}", response_model=ApiResponse[LLMConfigRead])
@@ -43,7 +43,7 @@ def update_llm_config_endpoint(config_id: int, config_in: LLMConfigUpdate, sessi
     config = llm_config_service.update_llm_config(session=session, config_id=config_id, config_in=config_in)
     if not config:
         raise HTTPException(status_code=404, detail="LLM Config not found")
-    return ApiResponse(data=config)
+    return ApiResponse(data=llm_config_service.to_read_model(config))
 
 
 @router.delete("/{config_id}", response_model=ApiResponse)
@@ -55,9 +55,10 @@ def delete_llm_config_endpoint(config_id: int, session: Session = Depends(get_se
 
 
 @router.post("/get-models", response_model=ApiResponse[List[str]], summary="Get the model list")
-async def get_models_endpoint(request: LLMGetModelsRequest):
+async def get_models_endpoint(request: LLMGetModelsRequest, session: Session = Depends(get_session)):
     provider = (request.provider or "").lower()
     models: list[str] = []
+    request.api_key = llm_config_service.resolve_api_key(session, api_key=request.api_key, config_id=request.config_id)
 
     try:
         if provider in {"openai_compatible", "openai"}:
@@ -109,13 +110,13 @@ async def get_models_endpoint(request: LLMGetModelsRequest):
 
 
 @router.post("/test", response_model=ApiResponse, summary="Test LLM connection")
-async def test_llm_connection_endpoint(connection_data: LLMConnectionTest):
+async def test_llm_connection_endpoint(connection_data: LLMConnectionTest, session: Session = Depends(get_session)):
     """Build a ChatModel with a temporary transport config and perform a minimal call."""
     try:
         model = build_chat_model_from_payload(
             provider=connection_data.provider,
             model_name=connection_data.model_name,
-            api_key=connection_data.api_key,
+            api_key=llm_config_service.resolve_api_key(session, api_key=connection_data.api_key, config_id=connection_data.config_id),
             api_base=connection_data.api_base,
             api_protocol=connection_data.api_protocol,
             custom_request_path=connection_data.custom_request_path,
@@ -129,6 +130,7 @@ async def test_llm_connection_endpoint(connection_data: LLMConnectionTest):
 
 @router.post("/capability-test", response_model=ApiResponse[LLMCapabilityTestResult], summary="LLM capability test")
 async def capability_test_endpoint(request: LLMCapabilityTestRequest, session: Session = Depends(get_session)):
+    request.api_key = llm_config_service.resolve_api_key(session, api_key=request.api_key, config_id=request.config_id)
     try:
         result = await run_capability_test(request)
     except Exception as exc:
@@ -177,4 +179,4 @@ def copy_llm_config_endpoint(config_id: int, session: Session = Depends(get_sess
     config = llm_config_service.copy_llm_config(session=session, config_id=config_id)
     if not config:
         raise HTTPException(status_code=404, detail="LLM Config not found")
-    return ApiResponse(data=config, message="LLM Config copied successfully")
+    return ApiResponse(data=llm_config_service.to_read_model(config), message="LLM Config copied successfully")

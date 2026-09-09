@@ -47,6 +47,14 @@ backend on another port of the same machine; the Electron CSP is restricted to
 
 ## Secrets and telemetry
 
+- **Stored provider keys are never returned to the client.** Every
+  `LLMConfig` read (`GET /api/llm-configs/`, create/update/copy responses,
+  `/api/ai/config-options`) masks `api_key` to `••••` + last four characters
+  (`llm_config_service.mask_api_key`). Updating a configuration with a masked
+  (or untouched) key keeps the stored key; the model-list and connection-test
+  endpoints accept a `config_id` and resolve the real key server-side
+  (`resolve_api_key`), so the renderer never holds the secret. The only place a
+  plaintext key crosses the wire is the author typing a new one.
 - `ModelInvocation` / `ModelInvocationAttempt` store prompt and response
   **hashes**, token counts and a ≤300-char redacted diagnostic; never prompt or
   response text. `redact()` strips the configuration's key, `Bearer` tokens and
