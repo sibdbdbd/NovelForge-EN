@@ -42,7 +42,8 @@ RequirementCategory = Literal[
 class CharterRequirement(BaseModel):
     """One requirement the novel must honour."""
 
-    id: str = Field(description="Stable short id (e.g. 'req-3'); referenced by warnings and prompts")
+    # ids are assigned by the service on save; the model is never asked to produce them
+    id: str = Field(default="", description="Stable short id (e.g. 'req-3'); referenced by warnings and prompts", json_schema_extra={"x-ai-exclude": True})
     text: str = Field(description="The requirement, in the author's terms, one or two sentences")
     category: RequirementCategory = Field(default="other")
     strength: RequirementStrength = Field(default="must", description="'must' is non-negotiable; 'prefer' guides choices")
@@ -55,7 +56,7 @@ class CharterRequirement(BaseModel):
 class OpenChoice(BaseModel):
     """Something the author intentionally left undecided."""
 
-    id: str = Field(description="Stable short id (e.g. 'open-2')")
+    id: str = Field(default="", description="Stable short id (e.g. 'open-2')", json_schema_extra={"x-ai-exclude": True})
     topic: str = Field(description="What is undecided (e.g. 'the protagonist's family background')")
     options: List[str] = Field(default_factory=list, description="Directions the author would accept, if they named any")
     guidance: str = Field(default="", description="How the story may explore it without settling it permanently")
@@ -66,7 +67,7 @@ class OpenChoice(BaseModel):
 class CharterBoundary(BaseModel):
     """Content the novel must never include."""
 
-    id: str = Field(description="Stable short id (e.g. 'no-1')")
+    id: str = Field(default="", description="Stable short id (e.g. 'no-1')", json_schema_extra={"x-ai-exclude": True})
     text: str = Field(description="What is off limits")
     severity: Literal["hard", "soft"] = Field(default="hard", description="'hard' blocks generation; 'soft' is avoided but not fatal")
     source: EntrySource = Field(default="author", json_schema_extra={"x-ai-exclude": True})

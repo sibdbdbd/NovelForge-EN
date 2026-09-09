@@ -4,6 +4,7 @@ architecture, chapter plan, compiled chapter context, repair). No live model cal
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import uuid
@@ -155,6 +156,20 @@ def test_apply_interpretation_keeps_author_entries_and_replaces_interpreted(clie
         assert svc.summary(pid).brief_changed_since_interpretation is True
 
 
+def test_interpretation_schema_never_asks_model_for_ids():
+    """Ids are service-assigned; a model reply without them must validate and the AI schema must not require them."""
+    from app.utils.schema_utils import filter_schema_for_ai
+
+    interp = CharterInterpretation.model_validate({
+        "requirements": [{"text": "Magic is paid for in recorded debt", "category": "world", "strength": "must", "scope": "world"}],
+        "open_choices": [{"topic": "who the true creditor is", "decide_by": "author"}],
+        "boundaries": [{"text": "No graphic torture", "severity": "hard"}],
+    })
+    assert interp.requirements[0].id == "" and interp.open_choices[0].id == "" and interp.boundaries[0].id == ""
+    schema = json.dumps(filter_schema_for_ai(CharterInterpretation.model_json_schema()))
+    assert '"id"' not in schema
+
+
 def test_interpret_endpoint_uses_prompt_and_model(client, monkeypatch):
     from app.services.ai.core import llm_service
 
@@ -162,7 +177,8 @@ def test_interpret_endpoint_uses_prompt_and_model(client, monkeypatch):
         assert kwargs["output_type"] is CharterInterpretation
         assert "AUTHOR'S BRIEF" in kwargs["user_prompt"]
         assert "Development Editor" in kwargs["system_prompt"]
-        return CharterInterpretation(requirements=[CharterRequirement(id="r", text="A wry first-person narrator", category="prose", scope="prose", rationale="brief: 'wry voice'")], open_choices=[OpenChoice(id="o", topic="the antagonist's identity", decide_by="either")])
+        # Mirrors real model output: no ids, no source/locked
+        return CharterInterpretation(requirements=[CharterRequirement(text="A wry first-person narrator", category="prose", scope="prose", rationale="brief: 'wry voice'")], open_choices=[OpenChoice(topic="the antagonist's identity", decide_by="either")])
 
     monkeypatch.setattr(llm_service, "generate_structured", fake_generate_structured)
     pid = _project(client)
@@ -173,6 +189,7 @@ def test_interpret_endpoint_uses_prompt_and_model(client, monkeypatch):
     assert body["charter"]["brief"] == "I want a wry voice."
     assert [x["text"] for x in body["charter"]["requirements"]] == ["A wry first-person narrator"]
     assert body["charter"]["requirements"][0]["source"] == "interpreted"
+    assert body["charter"]["requirements"][0]["id"] == "req-1" and body["charter"]["open_choices"][0]["id"] == "open-1"
     assert body["summary"]["open_choices"] == 1
     r = client.post("/api/story-charter/interpret", json={"project_id": _project(client), "llm_config_id": llm})
     assert r.status_code == 400  # nothing to interpret
