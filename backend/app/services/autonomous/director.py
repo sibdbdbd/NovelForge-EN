@@ -21,7 +21,7 @@ the stage under its lease as usual.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional
 
 from loguru import logger
 from sqlalchemy.orm.attributes import flag_modified

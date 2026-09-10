@@ -35,6 +35,12 @@ from app.services.forge.textmetrics import BEAT_FUNCTIONS
 PLAN_PROMPT_VERSION = "autonomous-chapter-plan-1"  # legacy label for outline provenance; live runs record the Prompt-table version
 WINDOW = 8
 DEFAULT_WORDS_PER_CHAPTER = 2500
+# Planning-prompt bounds for the already-written chapters: full detail for the most recent
+# ones, one compressed line each for the older ones (capped), so the prompt stays within
+# the model's context on long serials.
+COMMITTED_RECENT_DETAIL = 12
+COMMITTED_OLDER_MAX = 60
+COMMITTED_OLDER_CHARS = 110
 
 
 def _c(card: Optional[Card]) -> Dict[str, Any]:
@@ -156,7 +162,12 @@ def build_prompt(arch: Dict[str, Any], *, chapters: Sequence[int], total: int, w
         parts.append("\n[GENRE ENGINE — reward cadence and progression rules every blueprint must honour]\n" + genre_engine_text.strip())
     if committed_summaries:
         parts.append("\n[ALREADY WRITTEN CHAPTERS — immutable; plan continuity from their actual state]")
-        for s in committed_summaries:
+        recent = list(committed_summaries)[-COMMITTED_RECENT_DETAIL:]
+        older = list(committed_summaries)[:-COMMITTED_RECENT_DETAIL] if len(committed_summaries) > COMMITTED_RECENT_DETAIL else []
+        if older:
+            # Whole-book memory in one line per chapter, so a 400-chapter novel cannot bloat the prompt.
+            parts.append(f"- chapters {older[0].get('chapter_number')}-{older[-1].get('chapter_number')} (compressed): " + " / ".join(f"ch {s.get('chapter_number')}: {str(s.get('summary') or '').split('. ')[0][:COMMITTED_OLDER_CHARS]}" for s in older[-COMMITTED_OLDER_MAX:]))
+        for s in recent:
             parts.append(f"- ch {s.get('chapter_number')}: {str(s.get('summary') or '')[:500]} | ends at {s.get('ending_location')} | open: {s.get('unresolved_immediate_action')}")
     if previous:
         parts.append("\n[PREVIOUS BLUEPRINTS — continue from these]")

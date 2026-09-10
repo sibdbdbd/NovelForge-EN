@@ -274,9 +274,9 @@ def webnovel_audit(session: Session, project_id: int, chapters: Sequence[Tuple[i
     overall = round(sum(x["overall"] for x in cards) / len(cards), 2)
     dims: Dict[str, float] = {}
     for x in cards:
-        for k, v in (x["scores"] or {}).items():
-            dims[k] = dims.get(k, 0.0) + float(v)
-    dims = {k: round(v / len(cards), 2) for k, v in dims.items()}
+        for k, score in (x["scores"] or {}).items():
+            dims[k] = dims.get(k, 0.0) + float(score)
+    dims = {k: round(total / len(cards), 2) for k, total in dims.items()}
     below = [x["chapter"] for x in cards if x["overall"] < 6.5]
     return findings, {"profile": {"platform": profile.platform, "subgenre": profile.engine.subgenre, "perspective": profile.perspective, "register": profile.narrator_register}, "overall": overall, "dimensions": dims, "chapters": cards, "below_floor": below[:100], "worst_reward_drought": worst_drought}
 
