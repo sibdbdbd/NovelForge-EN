@@ -1,992 +1,645 @@
 <div align="center">
 
-# NovelForge
+# NovelForge-EN
 
-<p><strong>A next-generation AI long-form novel writing engine</strong></p>
+**Next-Generation Autonomous AI Novel Engineering Platform & Narrative Studio**
+
+[![Repository](https://img.shields.io/badge/GitHub-Sigmaaaaa12343%2FNovelForge--EN-blue?logo=github)](https://github.com/Sigmaaaaa12343/NovelForge-EN/tree/main)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-purple.svg)](https://www.gnu.org/licenses/agpl-3.0)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg?logo=python)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.111%2B-009688.svg?logo=fastapi)](https://fastapi.tiangolo.com/)
+[![Vue 3](https://img.shields.io/badge/Vue-3.x-4FC08D.svg?logo=vuedotjs)](https://vuejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6.svg?logo=typescript)](https://www.typescriptlang.org/)
+[![Electron](https://img.shields.io/badge/Electron-30.x-47848F.svg?logo=electron)](https://www.electronjs.org/)
+[![SQLite](https://img.shields.io/badge/SQLite-3-003B57.svg?logo=sqlite)](https://www.sqlite.org/)
+[![Neo4j](https://img.shields.io/badge/Neo4j-Graph_DB-008CC1.svg?logo=neo4j)](https://neo4j.com/)
 
 <p>
-  <a href="#table-of-contents">Contents</a> •
-  <a href="#core-features">Features</a> •
-  <a href="#changelog">Changelog</a> •
-  <a href="#getting-started">Getting Started</a> •
-  <a href="#creation-workflow">Creation Workflow</a>
+  <a href="#-table-of-contents">Contents</a> •
+  <a href="#-system-architecture">Architecture</a> •
+  <a href="#-core-systems-deep-dive">Core Systems</a> •
+  <a href="#-visual-tour--screenshots">Visual Tour</a> •
+  <a href="#-getting-started">Getting Started</a> •
+  <a href="#-creation-modes">Creation Modes</a> •
+  <a href="#-prose-craft-presets">Prose Craft</a> •
+  <a href="#-api-reference">API Reference</a> •
+  <a href="#-specialized-docs">Documentation</a>
 </p>
 
-<p>
-  <a href="#advanced-features">Advanced</a> •
-  <a href="#workflow-system">Workflow System</a> •
-  <a href="#project-structure">Project Structure</a> •
-  <a href="./CONTRIBUTING.md">Contributing</a> •
-  <a href="./ROADMAP.md">Roadmap</a>
+<p align="center">
+  <img src="docImgs/autonomous_studio.png" alt="NovelForge-EN Autonomous Studio" width="100%" style="border-radius: 8px; box-shadow: 0 4px 24px rgba(0,0,0,0.18);" />
 </p>
-
 
 </div>
 
-> ## ℹ️ English Fork Notice
->
-> This is an **English-language fork** of [NovelForge](https://github.com/RhythmicWave/NovelForge), originally created and maintained by **[RhythmicWave](https://github.com/RhythmicWave)**.
->
-> - The original project is in **Chinese**. This fork localizes the UI, documentation, and seed content to **English**.
-> - This is **not** a 1:1 copy — some features, labels, or behaviors may differ from the upstream Chinese version as part of the localization process.
-> - **I am not a coder.** This English migration was produced **100% by AI** assistance. Expect rough edges, and please report issues if you spot anything off.
+---
+
+## ℹ️ Repository Notice & English Fork Heritage
+
+**NovelForge-EN** is the production-hardened English narrative engineering platform and autonomous novel generation system, maintaining active upstream synchronization with **[Sigmaaaaa12343/NovelForge-EN](https://github.com/Sigmaaaaa12343/NovelForge-EN/tree/main)**.
+
+Originally forked from [RhythmicWave/NovelForge](https://github.com/RhythmicWave/NovelForge), this English distribution has evolved into a complete, enterprise-grade AI novel production suite:
+- **Full English Localization & Hardened Architecture**: All backend services, data models, prompt templates, seed knowledge bases, and Vue 3 / Electron UI elements are natively localized and hardened.
+- **Autonomous Novel Engine**: End-to-end reference EPUB deconstruction, narrative genome reverse-engineering, dynamic context-aware chapter beat planning, multi-pass scene drafting, and episodic publishing.
+- **Webnovel Serialization Standards**: Built-in support for Korean webnovel prose dynamics (Novelpia, Munpia, KakaoPage, Naver Series, Royal Road) with deterministic conformance grading.
+- **Author-Centric Reliability**: 65k context compiler, immutable server-side snapshots, live Director control room, and author field locks ensuring zero context drift or data loss.
 
 ---
 
-**NovelForge** is an AI-assisted writing tool capable of producing long-form novels of hundreds of thousands or even millions of words. It is more than an editor — it is a complete solution combining world-building and structured content generation.
+<a id="-table-of-contents"></a>
+## 📑 Table of Contents
 
-In long-form writing, the greatest challenges are maintaining consistency, ensuring controllability, and sustaining inspiration. To address these, NovelForge is built around four core concepts: modular **"Cards"**, customizable **"Dynamic Output Models"**, flexible **"Context Injection"**, and consistency-preserving **"Knowledge Graph"**.
-
----
-
-<a id="table-of-contents"></a>
-## 📑 Contents
-
-### Quick Navigation
-
-- [✨ Core Features](#core-features)
-- [📅 Changelog](#changelog)
-- [🛠️ Tech Stack](#tech-stack)
-- [🚀 Getting Started](#getting-started)
-- [✍️ Creation Workflow](#creation-workflow)
-- [⚙️ Advanced Features & Configuration](#advanced-features)
-- [📂 Project Structure](#project-structure)
-- [🔭 Outlook](#outlook)
-
-### Jump to Feature
-
-- [Schema-first: Type/Instance Structure & Parameters](#schema-first)
-- [Prompt Workshop](#prompt-workshop)
-- [Context Injection (@DSL) in Depth](#context-dsl)
-- [Workflow System (Code-style Workflows + Workflow Agent)](#workflow-system)
-  - [Workflow Studio](#workflow-studio)
-  - [Trigger Configuration](#workflow-triggers)
-  - [Workflow Status Bar (Global Background Execution)](#workflow-status-bar)
-  - [Node-level Progress & Interrupt Recovery (Beta)](#workflow-progress-recovery)
-  - [Persistent vs. Temporary Workflows](#workflow-persistent-vs-temporary)
-  - [Built-in Workflow Templates](#workflow-builtins)
-  - [Project Initialization Workflows](#workflow-project-init)
-  - [Workflow Agent (Write Workflows in Natural Language)](#workflow-agent)
-  - [Workflow Usage Example (Book-Breakdown Workflow)](#workflow-examples)
-
-### Collaboration & Planning
-
-- [Contributing Guide](./CONTRIBUTING.md)
-- [Roadmap](./ROADMAP.md)
+- [🌟 Platform Overview](#-platform-overview)
+- [🏗️ System Architecture](#-system-architecture)
+- [⚡ 8 Core Systems Deep-Dive](#-core-systems-deep-dive)
+  - [1. Autonomous Novel Pipeline (End-to-End)](#1-autonomous-novel-pipeline-end-to-end)
+  - [2. Director Deep-Input & Live Control Room](#2-director-deep-input--live-control-room)
+  - [3. Webnovel Style Engine & Conformance Grader](#3-webnovel-style-engine--conformance-grader)
+  - [4. Prose Craft Multi-Pass Engine](#4-prose-craft-multi-pass-engine)
+  - [5. 65k Context Compiler & Story Memory](#5-65k-context-compiler--story-memory)
+  - [6. Novel Intelligence Studio (Novel Bible 2.0)](#6-novel-intelligence-studio-novel-bible-20)
+  - [7. Studio Workbench, Cards & Workflow Automation](#7-studio-workbench-cards--workflow-automation)
+  - [8. Enterprise Hardening & Manuscript Safety](#8-enterprise-hardening--manuscript-safety)
+- [📸 Visual Tour & Screenshot Showcase](#-visual-tour--screenshots)
+- [🚀 Getting Started](#-getting-started)
+  - [Prerequisites](#prerequisites)
+  - [Windows Quick Start (One-Click)](#windows-quick-start-one-click)
+  - [Linux / macOS Installation](#linux--macos-installation)
+  - [LLM Provider Configuration](#llm-provider-configuration)
+- [🎨 Creation Workflows](#-creation-modes)
+- [✒️ Prose Craft Presets Comparison](#-prose-craft-presets)
+- [🎭 19 Webnovel Subgenres & Platforms](#-webnovel-subgenres)
+- [🔌 API & CLI Reference](#-api-reference)
+- [📂 Project Directory Structure](#-project-directory-structure)
+- [📚 Technical Documentation Index](#-specialized-docs)
+- [🤝 Contributing & License](#-contributing--license)
 
 ---
 
-<a id="core-features"></a>
-## ✨ Core Features
+<a id="-platform-overview"></a>
+## 🌟 Platform Overview
 
-*   **📱 Webnovel Style Engine (Korean-webnovel prose, in English)**
-    *   Pick a platform (Novelpia, Munpia, KakaoPage, Naver Series, RoyalRoad) and one of 19 subgenre templates — or leave everything on *Let the engine decide* and the profile is detected from your brief and the reference's measurable rhythm. The resulting **Webnovel Style Profile** fixes what the prose must do on the page: one-line paragraph rhythm, the narrator's private verdict in `'single quotes'` after significant lines, `[System]` windows as beats, SFX lines, Korean address forms rendered in English, a reward in every chapter and a hook in every last line.
-    *   The profile is rendered into **every** prompt — storyline ideation, architecture, chapter blueprints, drafting and the critic — and a deterministic **Webnovel Conformance** grader scores every draft on rhythm, inner voice, conventions, momentum, reward and ending with quoted fixes, feeding the Prose Craft polish so literary-but-not-webnovel prose is corrected, not accepted.
-    *   The **Director** steers a novel while it is written: edit the style profile, add standing notes (`must / prefer / avoid / idea`, novel- arc- or chapter-scoped) that carry Charter-level authority, and *redo chapter N with this note* — canon rewinds, the blueprint window is re-planned under your note, and generation resumes. See [docs/webnovel-style-engine.md](./docs/webnovel-style-engine.md).
+Writing a coherent, commercially viable long-form novel (100,000 to 1,000,000+ words) using generic LLMs fails because:
+1. **Context Drift**: Characters forget their injuries, items teleport across continents, and established magic costs vanish.
+2. **AI Slop Prose**: Text fills with repetitive tropes, melodrama, therapy-speak, and cliché phrasing (*"a testament to"*, *"not X, but Y"*, *"a breath he didn't know he was holding"*).
+3. **Pacing Collapse**: Early chapters rush through dopamine hits without narrative grounding, or middle chapters stall in endless repetitive dialogue loops.
+4. **Lack of Mid-Flight Controllability**: The author cannot steer the direction without throwing away the entire manuscript or breaking canon.
 
-*   **📜 Story Charter (your requirements, kept alive for the whole novel)**
-    *   Describe the novel you want in a sentence or in pages. The brief and any preferences become the project's **Story Charter**: fixed requirements (*must*) and preferences (*prefer*) with a scope, **open choices** you deliberately have not decided (the system may explore them but never turns them into permanent facts without permission), and content **boundaries**.
-    *   One optional model call **interprets** the brief into editable entries; everything it inferred is visibly tagged so you can correct it. Your own entries are never rewritten.
-    *   The Charter is rendered, scoped, into **every** planning and generation prompt — storyline ideation, novel architecture, every chapter blueprint batch, every Forge draft and repair — so "no love triangle" still holds in chapter 200. A *What the prompts receive* preview shows exactly what each stage is told. An imported reference EPUB informs structure and rhythm only; its names, settings, scenes and phrasing are always off-limits. See [docs/story-charter.md](./docs/story-charter.md).
+**NovelForge-EN** resolves these architectural flaws through an interlocking suite of deterministic compilers, living ledgers, multi-pass craft engines, and real-time author control channels.
 
-*   **🛡️ Manuscript safety (nothing is overwritten silently)**
-    *   Every overwrite of a card — your save, an AI regeneration, a global repair, an architecture rebuild — first takes a **server-side snapshot**. *Version history → Saved on server* lists them with the reason, lets you diff and restore, and a restore is itself undoable.
-    *   **Author locks** on Bible ledger fields keep your manual edits from being replaced by automated sync; suppressed updates are recorded instead of applied. A **pre-migration backup** of the SQLite file is written before every schema upgrade. Provider **API keys are masked** in every API response.
-
-*   **✒️ Prose Craft (multi-pass chapter quality engine)**
-    *   Chapter generation is no longer one rushed call. Beats are grouped into **scenes**, each drafted with the previous scene's *exact* ending lines, last spoken line and physical positions carried forward, then stitched.
-    *   **Subtext packets** compiled from the Bible before any dialogue: what every character present wants from the protagonist in this scene, what they are suppressing, their leverage, tactic, speech cadence and forms of address — plus what the protagonist is likely to misread. A **Protagonist Voice** profile (archetype, inner register vs. outer composure, what they notice first, private humor, self-deception) is stored on the Character Card and injected into every scene.
-    *   An **adversarial webnovel critic** grades every draft 1–10 on authenticity, voice, interiority, dialogue, pacing, sensory grounding, hook and payoff, backed by a deterministic **AI-tic catalogue** ("not X, but Y", "a testament to", "the man who…", "a breath he didn't know he was holding", emotion cocktails, therapy-speak…). A **surgical line polish** rewrites only the cited spans; a **hook sharpener** rewrites a soft fade-out ending into a crisis / revelation / decision / threat-arrival hook. Every pass is guarded — output that scores lower is discarded.
-    *   Presets `off · economy · balanced · full` on the Forge panel and Create Novel; an instant **Craft grade** card in the editor works with no model at all. See [docs/prose-craft.md](./docs/prose-craft.md).
-
-*   **🧠 Story Memory (whole-book context that never drifts)**
-    *   Every written chapter gets a **Chapter Digest** — a compact structured memory (events, persistent state changes, who-learned-what, hooks opened/closed, promises, exact ending state) extracted once and kept fresh automatically when the text changes.
-    *   A deterministic **Story So Far** compiler folds every digest into a tiered, budgeted recap (recent chapters in detail → older arcs compressed) plus a **carry-forward world state** (where everyone is, what they hold, who is dead) and the **dangling hooks** the reader is still waiting on. It is injected into every chapter continuation, so chapter 300 still remembers chapter 12.
-    *   **Continuity Guard** checks a draft before you accept it: prohibited reveals, dead characters acting, lost items reappearing, location teleports, unknown recurring names, dropped hooks, forbidden outcomes — instantly, with an optional deep model pass; click an issue to jump to the text.
-    *   **Next Chapter Brief** tells the model (and you) what the coming chapter *must* address, *should* consider and must *avoid*, from overdue promises, neglected threads, pending relationship shifts and the outline. **Bible Health** scores coverage with fix hints. See [docs/story-memory.md](./docs/story-memory.md).
-
-*   **📖 Novel Intelligence Studio (Novel Bible 2.0)**
-    *   A dedicated **Novel Bible** tab in the editor. *Create Bible* builds a deep, evidence-backed Bible before you write (Story Foundation, Reader Contract, Theme Map, Power System, Style Profile, Narrative Architecture, plus ledgers for Plot Threads, Promises & Payoffs, Knowledge Facts, Relationship Arcs, World Rules and Timeline Events). Every fact carries a truth status (`canon / believed / planned / inferred / disputed / obsolete`), confidence, and chapter evidence.
-    *   **Living Bible**: after writing a chapter, "Propose Bible updates" extracts changes as a reviewable proposal — accept, reject, edit, postpone, mark as plan-not-canon, intentional contradiction, or unreliable narration. Nothing is written silently; accepted changes keep a value history.
-    *   **Context Compiler**: chapter generation automatically receives the minimum relevant Bible slice (active threads, due promises, relationship state, POV knowledge) with selection reasons, and prohibits knowledge the POV character cannot yet have.
-    *   **Deterministic audits**: neglected threads, overdue promises, disputed facts, reward drought, repeated scene functions — surfaced in an Audits panel with card links.
-    *   *Extract Bible*: the **Narrative Reverse-Engineering Lab** imports a TXT/Markdown/EPUB/DOCX manuscript you have the right to analyse, previews chapter detection (split/merge/rename/exclude corrections), then a workflow runs chapter analysis → local arc detection → global stage reconciliation → entity resolution → Bible reconstruction → emotional rhythm → **Narrative Genome**, with an **Originality Transformation** prompt to derive original premises. The legacy Book Teardown Workflow remains available.
-
-*   **📚 Schema-driven card creation**
-    *   Each card type can define a structure (Schema). AI generation is validated against that structure, reducing "looks usable but falls apart in practice" output.
-
-*   **⚡ Instruction-streaming AI card generation**
-    *   No longer "generate the whole thing in one shot." Now it's "enter requirements → stream-fill at the field level → you confirm or give feedback to continue." More controllable, easier to correct, and a smoother generation process that avoids long waits for results.
-    *   This capability focuses on generating and refining "the current card"; closing the dialog ends that session.
-
-*   **📝 Chapter body word-count control**
-    *   Chapter continuation supports two modes: `Prompt Constraint` and `Control Mode`.
-    *   `Prompt Constraint` is more natural and cheaper; `Control Mode` splits the target word count into multiple rounds with budgets — more stable control, but consumes more tokens.
-
-*   **✅ Unified review & review-result cards**
-    *   Review follows a unified "draft preview → confirm and save as review-result card" flow.
-    *   Different card types can use different review prompts, but the result card structure stays consistent, making viewing and referencing easy.
-
-*   **🧠 Context injection + knowledge-graph consistency**
-    *   Precisely reference project data with `@DSL`; combine the relationship graph and dynamic information so subsequent generation stays close to what's already written and character relationships.
-
-*   **🔮 Inspiration Assistant (Agent)**
-    *   Sustained conversation, card referencing, and tool calls to modify content. Refine your settings like working with a partner, instead of regenerating whole cards over and over.
-
-*   **🧩 Code-style workflow system**
-    *   Refactored onto a code-style workflow mainline (the old DAG approach was removed). Supports visual editing, trigger-based execution, and reuse — ideal for automating common creation tasks.
-
-*   **🤖 Workflow Agent**
-    *   Describe your needs in natural language and let the Agent write/modify workflow code, validate it, and apply changes for you.
-
-*   **💡 Ideas Workbench**
-    *   Supports free cards, cross-project references, and moving/copying back into a formal project — ideal for dedicated brainstorming and material collection.
+| Challenge in AI Novel Writing | How NovelForge-EN Solves It |
+| :--- | :--- |
+| **Context Amnesia** | **Living Story Memory**: Automatic Chapter Digests + Deterministic *Story So Far* compiler injecting tiered history and carry-forward world states into a 65k token budget. |
+| **AI Slop & Repetitive Tics** | **Prose Craft & Tic Scrubbing**: Multi-pass scene drafting with subtext packets, protagonist voice profiles, and deterministic AI-tic catalogue elimination. |
+| **Uncalibrated Dopamine & Rhythm** | **Webnovel Style Engine**: Platform conventions (Novelpia, KakaoPage), dynamic beat pacing (2–3 grounding beats in Ch 1 vs. 4–6 in climax), and 6-dimension conformance grading. |
+| **Uncontrollable Generation** | **Director Control Room**: Live Directive Book (MUST / PREFER / AVOID / IDEA) and instant *Canon Rewind & Replan* from chapter N. |
+| **Accidental Overwrites** | **Manuscript Safety Suite**: Automatic SQLite pre-migration backups, author field locks, and immutable server-side revision snapshots with full diff & restore. |
 
 ---
 
-<a id="changelog"></a>
-
-## 📅 Changelog
-<details open>
-<summary>v0.14.0 — Webnovel Style Engine & Director</summary>
-
-- **Webnovel Style Profile** (`Webnovel Style Profile` singleton card, `WebnovelStyleProfile` schema): the novel's Korean-webnovel identity in one record — target platform (`novelpia | munpia | kakaopage | naver_series | royalroad | generic`, each with front-page conventions), perspective, narrative distance and one of eight narrator registers; narration mechanics (inner speech in `'single quotes'` / italics / em-dash / plain, `[System]` windows on or off, SFX lines, Korean address forms in English, one-line paragraph rhythm, beat line-breaks, episode titling); the **genre engine** (progression axis, tier ladder, reward types, face-slap cadence, knowledge advantage, world hooks, arc shape, native vocabulary); reader-experience targets (core fantasy, dopamine per chapter, maximum reward drought, comedy / romance / violence, interiority share); chapter shape; signature and banned moves. `derived_from ∈ {author, detected, default}` with human-readable detection notes.
-- **19 subgenre templates** (regression, system apocalypse, hunter/gate, tower climb, dungeon, villainess transmigration, academy, murim, cultivation, reincarnated noble, modern fantasy, LitRPG, office life, rofan, returnee, apocalypse survival, sports, entertainment industry, historical transmigration) seed the engine and reader groups; cue words in the brief pick one automatically. **Detection** fills everything the author left on *Let the engine decide* from the brief and the source fingerprint's measurable signals (POV, paragraph rhythm, inner-thought share, windows, humour, reward cadence) — never from source content.
-- **Profile in every prompt**: `render_for_planning` (GENRE ENGINE) in storyline ideation, novel architecture and every chapter-blueprint window; `render_for_drafting` as a mandatory `webnovel_style` Forge section that outranks the fingerprint; `render_for_critic` as the editor's scorecard. `GET /jobs/{id}/style/preview` shows the exact blocks.
-- **Webnovel Conformance**: a deterministic, no-model grader scoring every draft 1–10 on rhythm, inner voice, conventions, momentum, reward and ending with quoted, actionable findings (`inner_speech_missing`, `no_private_verdicts`, `windows_absent`, `reversal_without_reaction`, `soft_ending`, `recap_opening`, `metaphor_stacking`, …). Merged into the Prose Craft critic as a co-equal judge (lower shared score wins, `webnovel_*` dimensions added), so clean literary English that is not a webnovel still gets polished toward the profile. Stored per chapter as `webnovel_before` / `webnovel_after`; the whole-novel audit reports per-dimension averages, chapters below the floor and the worst reward drought.
-- **Author Directives** (`Author Directives` singleton card): the author's steering notes in their own words — `scope ∈ {novel, arc, chapter}`, `kind ∈ {must, prefer, avoid, idea}`, `applies_to ⊆ {planning, drafting, critic, export}` — injected next to the Story Charter with the same authority in architecture, chapter planning and the Forge compiler (priority 0), with `consumed_by_chapters` tracking so the author can see a note reached chapter 14. Notes added before the project exists are held on the job and applied the moment it is created.
-- **Director** — a live channel into a running job: edit the style profile (deep-merge PATCH; switching subgenre re-seeds the template while keeping edits), manage directives, and **redo from chapter N with a note**: the note becomes a chapter-scoped directive, canon and ledgers rewind to N−1, chapter texts and digests ≥ N are snapshotted and discarded, the blueprint window from N is **re-planned under the note** before drafting, and the job requeues at the chapter loop (optionally staying paused). `GET /redo/plan` previews the discard; `stage_results.redo_log` keeps the history.
-- **Export**: *Webnovel text (episodes)* — one episode per block with `Chapter 12 — Title` / `Episode 12` labels, and a table of contents whose teasers are each episode's last line.
-- **API** `/api/autonomous`: `GET /subgenres`, `GET/PATCH /jobs/{id}/style`, `GET /jobs/{id}/style/preview`, directive CRUD, `GET /jobs/{id}/redo/plan`, `POST /jobs/{id}/redo`, `GET /jobs/{id}/chapters/{n}/quality`. Create Novel accepts `platform`, `subgenre`, `perspective`, `narrator_register`, `thought_style`, `status_windows`, `comedy_level`, `directives` and `auto_start=false` (create paused for Director edits).
-- **UI**: Create Novel → *Webnovel style* card (every option defaults to *Let the engine decide*; standing directives; start-immediately switch); **Director** panel with *Style profile* / *Directives* / *Redo a chapter* / *Chapter quality* tabs; finished screen shows webnovel conformance, the worst reward drought and a style summary. en / zh-CN.
-- Docs: [docs/webnovel-style-engine.md](./docs/webnovel-style-engine.md). Tests: `backend/tests/test_webnovel_engine.py` (fake pipeline client, no live model), `useDirector.test.ts`, `DirectorPanel.render.test.ts` (server-renders the real panel against sparse payloads; vitest now compiles `.vue`).
-
-</details>
-<details>
-<summary>v0.13.0 — Story Charter, whole-book memory in the Forge, manuscript safety</summary>
-
-- **Story Charter** (`Story Charter` singleton card, `StoryCharter` schema): the author's brief (verbatim, never rewritten), scoped requirements (`must` / `prefer` × `whole_novel | planning | characters | world | prose | ending | chapter`), open choices with a `decide_by` policy, boundaries with severity, reference-usage rules, and `source ∈ {author, interpreted, imported}` on every entry. Seeded from the Create Novel form on job creation (`CharterService.ensure_from_job`); an existing charter is authoritative.
-- **Interpret brief**: one structured call (`Story Charter Interpretation` prompt) that only adds what the author has not already fixed; inferred entries are tagged and editable. Ids are assigned server-side and never requested from the model.
-- **Charter in every prompt**: `render_charter(consumer=…)` with per-consumer scopes is injected into storyline ideation (outranks the reference), novel architecture, every chapter-blueprint batch, the Forge compiler (mandatory `story_charter` section at priority 0; hard boundaries join the prohibited list) and repair prompts. `GET /api/story-charter/render` shows what each consumer receives; `POST /api/story-charter/check` is a deterministic conflict scan.
-- **Prompts as product**: the pipeline system prompts (`Forge - Chapter Draft`, `Forge - Chapter Repair`, `Autonomous - Storyline Ideation`, `Autonomous - Novel Architecture`, `Autonomous - Chapter Plan`, `Story Charter Interpretation`) moved from Python string literals into Prompt Workshop-editable `Prompt` rows via `prompt_registry`, with code-owned output contracts appended so edits cannot break parsing. The hardcoded sub-genre voice block that was applied to every chapter regardless of genre is gone; genre and tone now come from the Charter and the Bible.
-- **Story Memory in the Forge**: the Forge compiler (autonomous runs and the Forge panel) now carries a mandatory `story_so_far` section compiled from Chapter Digests plus the Next Chapter Brief; state-packet recaps are kept only for undigested chapters. The autonomous loop digests every committed chapter (`digest_extractor` role).
-- **Server-side card revisions** (`cardrevision`, migration `0007_card_revisions`): a snapshot before every overwrite — author save, pipeline commit/regenerate, global repair, architecture upsert — with reason/actor/word count; restore is itself snapshotted. `GET/POST /api/cards/{id}/revisions[...]`; *Version history → Saved on server* tab with diff preview and restore.
-- **Author locks** on Bible ledger cards (`/api/bible/cards/{id}/locks`): locked fields are skipped by `sync` and architecture upserts, and the suppressed value is recorded in `suppressed_updates` for review.
-- **Pre-migration SQLite backup** (`<db>.pre-<rev>-<stamp>.bak`, newest 5 kept; `NOVELFORGE_BACKUP_BEFORE_MIGRATION`, `NOVELFORGE_KEEP_MIGRATION_BACKUPS`) and **masked API keys** in every `LLMConfig` response (`••••last4`; model-list and test endpoints resolve the stored key by `config_id`).
-- **UI**: Novel Bible → *Story Charter* section (default landing section); Create Novel promotes a free-text brief above the optional preferences; version-history dialog gains the server tab. en / zh-CN.
-- Docs: [docs/story-charter.md](./docs/story-charter.md), updates to [story-memory](./docs/story-memory.md), [security](./docs/security.md), [migrations](./docs/migrations.md). Tests: `test_story_charter.py`, `test_data_safety.py`, additions to `test_autonomous_pipeline.py` / `test_forge_pipeline.py`, `useStoryCharter.test.ts`.
-
-</details>
-<details>
-<summary>v0.12.0 — Prose Craft</summary>
-
-- **Scene-by-scene drafting**: outline beats are grouped into 2–5 scenes (deterministic grouping by function tags / participant changes, or a model plan validated for exact beat coverage). Each scene is drafted with a `[THIS SCENE — k of n]` brief and the previous scene's exact ending lines, last speaker, physical positions and carried tension; intermediate scenes cannot emit chapter metadata; scenes are stitched with the scene-break convention.
-- **Subtext packets**: per-scene agendas for every present character compiled from `dramatic_design`, `voice`, `competence`, `consistency_rules`, Relationship Arcs and Knowledge Facts the POV lacks (want-from-POV, suppressing, leverage, fear, tactic, tell-when-lying, speech, address, never-says) plus the POV's private agenda and a likely misread.
-- **Protagonist Voice** Character Card group (`protagonist_voice`: archetype, inner register vs composure mask, notices first, private humor, self-deception, calculation style, signature moves, forbidden interior). Filled by *Character Bible Deepening*; compiled into the Forge context as a `PROTAGONIST VOICE` section; derived from existing Bible groups when absent.
-- **Webnovel critic**: deterministic grader (AI-tic catalogue with per-rule tolerance, interiority share, dialogue share and lecture speeches, sensory density, paragraph walls, hook/payoff) merged with an adversarial model editor; verdicts accept / polish / rewrite.
-- **Line polish** (only cited spans; adaptive length floor; rejected if the deterministic score falls) and **hook sharpener** (final two paragraphs → crisis / revelation / decision / threat arrival / reversal; fade-out detector; rejected unless measurably stronger). Metadata blocks are protected across both.
-- **Presets** `off | economy | balanced | full` — `PipelineOptions.craft`, `craft_preset` on `POST /api/forge/chapters/run` and on Create Novel jobs (defaults follow `quality_preset`). New autonomous roles `scene_planner`, `webnovel_critic`, `line_polisher`, `hook_editor`. Craft report stored on every pipeline run (`validation_report.craft`) and summarized in the run list (`craft_score`, `craft_mode`).
-- **API** `/api/craft/*`: grade any text or Chapter Text card, deterministic scene plan + subtext + voice for an outline, presets, tic catalogue.
-- **UI**: *Prose craft* selector + *Craft* score column in the Forge Pipeline panel; *Prose craft* selector in Create Novel; **Craft grade** card in the editor's Continuity tab (instant, no model; per-dimension bars, ending hook diagnosis, micro-payoffs, click-to-jump findings). en / zh-CN.
-- Docs: [docs/prose-craft.md](./docs/prose-craft.md). Tests: `backend/tests/test_prose_craft.py` (14 tests, no live model), `useForgePipeline.test.ts`.
-
-</details>
-<details>
-<summary>v0.11.0 — Story Memory</summary>
-
-- **Chapter Digest** card type: one structured extraction per written chapter (events with significance, persistent state changes, knowledge deltas, hooks opened/closed, promises, named extras, exact ending state, continuity risks, tension/hook metrics). Keyed by a text hash; unchanged text is never re-extracted, edited text marks the digest stale.
-- **Auto-digest on save**: Chapter Text saves with enough words digest in a background thread (per-project `Story Memory Settings` card: on/off, minimum words, digest model, windows, budgets, injection toggles). Batch endpoint digests every missing/stale chapter.
-- **Story So Far compiler** (deterministic): tiered recap (recent → mid → distant), carry-forward world state (location, possessions, injuries, alive/dead), dangling hooks with overdue detection, story clock and the previous chapter's exact ending. Budgeted; always keeps the previous ending.
-- **Automatic injection**: `/api/context/assemble` and chapter continuation now carry `story_memory` and `chapter_brief`; the Continue dialog exposes per-run toggles and a memory status line, and forwards the outline's POV.
-- **Continuity Guard**: `prohibited_reveal`, `dead_entity`, `possession_conflict`, `location_teleport`, `unknown_entity`, `head_hopping`, `time_inversion`, `dropped_strong_hook`, `forbidden_outcome`; optional LLM pass merges cited contradictions. New **Continuity** tab in the chapter editor with click-to-jump issues and "Digest this chapter".
-- **Next Chapter Brief** (must / should / avoid / rhythm) and **Bible Health** score with per-dimension fix hints. New **Story Memory** section in the Novel Bible studio (timeline with tension strip, digest detail, exact recap text, world state, dangling hooks, brief, settings).
-- Docs: [docs/story-memory.md](./docs/story-memory.md). Tests: `backend/tests/test_story_memory.py`, `composables/__tests__/useStoryMemory.test.ts`.
-
-</details>
-<details>
-<summary>v0.10.0 — Novel Intelligence Studio</summary>
-
-- **New "Novel Bible" tab** in the editor with *Create Bible* and *Extract Bible* modes.
-- **Bible 2.0 card types**: Story Foundation, Reader Contract, Theme Map, Power System, Style Profile, Narrative Architecture, Plot Thread, Promise Payoff, Knowledge Fact, Timeline Event, Relationship Arc, World Rule, Chapter Analysis, Story Structure Map, Emotional Rhythm, Narrative Genome, Originality Transformation. All fields carry truth status, confidence and chapter evidence.
-- **Character Card deepening**: optional `aliases`, `dramatic_design`, `voice`, `competence`, `arc_milestones`, `consistency_rules` and `history` fields (existing cards keep working; a one-click *Deepen* action fills them with AI).
-- **Living Bible**: "Propose Bible updates" in the chapter Extract panel produces a reviewable proposal (accept / reject / edit / postpone / mark as plan / intentional contradiction / unreliable narration). Accepted changes are applied with a value history; nothing is written silently.
-- **Context Compiler**: chapter generation and `/api/context/assemble` receive the minimum relevant Bible slice with selection reasons and a list of knowledge the POV character must not yet reveal.
-- **Audits**: neglected threads, overdue promises, disputed facts, reward drought, repeated scene functions.
-- **Relationship Matrix** (trust / affection / fear / dependency / resentment with milestones) and **Knowledge Matrix** (who knows / suspects / holds a false belief about each fact).
-- **Narrative Reverse-Engineering Lab**: import TXT / Markdown / EPUB / DOCX manuscripts with chapter-detection preview and corrections, then run the new `Narrative Reverse-Engineering Lab` workflow (chapter analysis → local arcs → global stage reconciliation → entity resolution → Bible reconstruction → emotional rhythm → Narrative Genome) and the `Lab - Originality Transformation` prompt. The legacy Book Teardown Workflow is unchanged.
-- New project template **Project Creation - Novel Intelligence Studio** and the **Narrative Architecture** fan-out workflow.
-- Workflow AI nodes now honor `x-ai-exclude`, so system-only fields never reach the model.
-- Backend test suite added (`backend/tests`).
-
-</details>
-
-<details>
-<summary>v0.9.6</summary>
-
-- Optimized prompts
-- Several feature improvements
-  - **LLM config page capability detection**
-    - Trigger model capability/compatibility tests from the LLM config page to help judge support for basic chat, streaming, structured output, tool calling, etc.
-
-  - **Inspiration Assistant batch body-edit suggestions**
-    - The Inspiration Assistant can return multiple body-edit suggestions at once; the editor supports reviewing, accepting, or rejecting them one by one.
-    - Retained tool-result handling and text-format fallback parsing to reduce failures when the model returns unstable formats.
-
-  - **Task-completion notifications**
-    - After an assistant reply or edit-suggestion generation finishes, a sound and desktop notification can be triggered (off by default; toggle in Assistant settings).
-- Bug fixes
-
-</details>
-
-<details>
-<summary>v0.9.5</summary>
-
-- Fixed workflow bugs
-- Changed the book-breakdown workflow to default instruction-stream mode for higher success rate
-- Fixed UI display issues on certain resolutions
-</details>
-
-<details>
-<summary>v0.9.4</summary>
-
-- **Memory-layer information enhancement (Character/Relationship/Scene/Organization/Item/Concept)**
-  - Unified extraction preview / confirm-write flow
-    In the chapter editor, the following capabilities are unified into a "preview first, then confirm" flow:
-
-    - Character dynamic information
-    - Relationship extraction into the graph
-    - Scene state
-    - Organization state
-    - Item state
-    - Concept mastery
-  - Unified interaction:
-    - Initiate extraction based on the current chapter body
-    - Show preview results first
-    - Allow manual adjustments in the preview
-    - Write back to the card or graph only after confirmation
-  - This release adds and rounds out lightweight state / memory capabilities for the following entity types (use as needed; not everything must be used, to avoid increasing context complexity):
-    - Scene card
-    - Organization card
-    - Item card
-    - Concept card
-- Optimized mobile CSS layout; added a show/hide toggle for the bottom-left navigation
-
-- Other optimizations and several bug fixes
-
-</details>
-
-<details>
-<summary>v0.9.3</summary>
-
-- **Chapter body word-count control refactor**
-  - Chapter continuation word-count control is consolidated into two modes:
-    - `Prompt Constraint`: only constrains word count at the prompt level; text is more natural, suitable for cases without strict word-count requirements
-    - `Control Mode`: splits the target word count into multiple rounds with budgets; more stable control, but consumes more tokens
-  - Control Mode currently uses a fixed multi-round budget strategy, improving stability and controllability for long-chapter continuation
-
-- **Review feature refactor**
-  - The review flow is unified into "generate a review draft first, then confirm to create/update the review-result card"
-  - Review results no longer depend on the old record model; they are uniformly stored as `Content Review Cards`
-  - Review-result cards are auto-filed under the root-level `Review Results` folder for centralized viewing and reuse
-  - The review entry in the chapter body and the generic card editor is unified as "review button + prompt switch"
-
-- **Other optimizations**
-  - Optimized LLM config, Responses-mode compatibility (Inspiration Assistant still incompatible), export ordering, chapter editor, and several UI details
-  - Fixed several bugs, improving overall stability
-
-</details>
-
-<details>
-<summary>v0.9.2</summary>
-
-- Added chapter review, stage review, and review-history viewing
-  - Click the review button at the top of a stage/chapter body card; the review result pops up when finished.
-  - Review history can be viewed in the right panel.
-- Added card search, folder-type cards, and one-click front+back startup; fixed a tree-structure fold-state saving issue.
-- Automatically checks for differences between model metadata and existing DB table structure, and adds back "safely addable" missing columns.
-- Other optimizations
-
-</details>
-
-<details>
-<summary>v0.9.1</summary>
-
-- **Relationship graph supports SQLite storage**
-  - Added SQLite support for relationship-graph storage (and remains compatible with Neo4j)
-  - Added relationship-graph management: filtering, batch editing, import/export, etc.
-
-- **Optimized chapter-body generation and polishing prompts**
-  - Improved performance of "content generation/polishing/expansion" prompts, raising output stability and usability
-  - Split style-constraint content into knowledge-base injection for independent maintenance and quick adjustment
-
-- **Added accept/reject after chapter-body polish/modify**
-  - Polish-replace supports "accept and replace / reject and restore" to reduce mis-replacement risk
-- Added copy-LLM-config feature: quickly copy and fine-tune from an existing config, reducing repetitive setup
-- Fixed several bugs, improving overall stability and interaction experience
-
-</details>
-
-<details>
-<summary>v0.9.0</summary>
-
-- 🚀 **Major update: 0.9.0**
-
-- ✨ **Refactored AI card generation flow**
-  - Upgraded from "click and wait for the whole result" to "enter requirements → field-level generation in the dialog → confirm/feedback to continue," significantly improving usability and smoothness~
-  - The generation process is more controllable, with lower correction cost.
-
-- 🧱 **Workflow system refactor (exploratory)**
-  - We exploratorily migrated workflows from the old **DAG-style editor** to the new **code-style workflow (Python-style statements + special marker DSL)**, and gradually removed the old DAG approach.
-  - This is primarily a trade-off between maintainability and AI-friendliness.
-  - **Advantages of code-style workflows (current experience):**
-    - Logic is more linear and clear: sequence, wait (`Logic.Wait`), async (`async=true`) and other semantics are closer to the real execution process.
-    - Progress handling and async operations are more natural: the executor schedules by statement plan, without weaving around a graph.
-    - More AI-friendly: the same feature often takes only dozens of lines in code form, while DAG config frequently needs hundreds of lines of node and connection descriptions.
-  - **Disadvantages of code-style workflows (needs ongoing polish):**
-    - Less intuitive than DAG
-    - More sensitive to string/code formatting: parameter serialization, dict field types, variable references and other details are more likely to trigger validation or runtime errors, requiring stronger validation and prompt constraints.
-
-- 🤖 **Added Workflow Agent**
-  - Describe your goal in natural language; the Agent generates/modifies workflow code and validates it.
-  - Supports a "preview before apply" safe-change experience.
-  - May still have some bugs.
-
-- 📚 **Built-in workflow enhancements**
-  - Added practical templates like the "Book-Breakdown Workflow" for out-of-the-box use and further customization.
-
-- 🎨 **Inspiration Assistant UI and interaction optimization**
-  - Improved conversation rendering, input-area interaction, and tool-call display.
-
-- 🧹 **Engineering refactor and stability improvements**
-  - Major restructuring of front/back-end directory structure and module boundaries; improved code maintainability.
-  - Fixed a batch of workflow, visual-parameter-editing, and Agent-interaction issues.
-
-- ⚠️ Because this version involves large changes, older databases may not work directly. Try the published migration script (success not guaranteed; back up your DB file beforehand!)
-
-</details>
-
-<details>
-<summary>v0.8.6</summary>
-
-- Added version-update detection, auto-checking by default (a red dot appears in Settings → About when a new version is available)
-- Optimized the LLM config UI; added a fetch-available-models feature
-- Added web-version adaptation
-- Code optimization and bug fixes
-
-</details>
-
-<details>
-<summary>v0.8.5</summary>
-
-- Fully replaced the agent framework with a new one; optimized the Inspiration Assistant and its UI
-- Added Inspiration-Assistant-related settings
-- Reimplemented React mode for text-format tool calling for models with weak tool-calling ability. Can be enabled in Settings → Inspiration Assistant (off by default)
-- Made reasoning models compatible; added thinking mode
-- Recommend choosing/modifying the provider to "OpenAI compatible" for models like DeepSeek and Qwen, while keeping OpenAI set to official models like GPT-5 only.
-- Several other optimizations
-- Code optimization and bug fixes
-
-</details>
-
-<details>
-<summary>v0.8.3</summary>
-
-- Inspiration Assistant enhancements
-  - Added ReAct mode: compatible with more LLMs (text-format tool calling); switch between standard/ReAct modes in settings
-    (Note: due to time constraints, the ReAct implementation is rough and may have bugs; still recommended to prefer models with good native tool-calling support)
-  - Smarter context: tool return values now include parent-card info, so the AI understands card hierarchy more accurately
-
-- UI and experience improvements
-  - Referenced-card area rebuilt: fixed layout, always-visible `...(N)` button, using Popover instead of Modal
-  - Improved tool-call result display: shows success/failure status, supports jumping to card, collapsible full JSON view
-  - Fixed overlap between referenced cards and model selection; adjusted input-box height
-- Code optimization and bug fixes
-
-</details>
-
-<details>
-
-<summary>v0.8.2</summary>
-
-- Optimized Inspiration Assistant tool calls; added auto-retry. Max retries configurable via .env
-- Enhanced card drag-and-drop; free ordering
-- Optimized Inspiration Assistant UI; supports markdown display
-- Bug fixes and code cleanup
-
-</details>
-
-<details>
-
-<summary>v0.8.0</summary>
-
-- Chapter editor refactor
-  - Migrated from a separate window to the middle column of the main editor, unifying the editing experience
-  - Added right-click quick edit: select text, right-click, and enter a request to polish/expand
-  - Improved context assembly: polish/expand auto-includes context for more natural continuity
-  - Dynamic highlighting of AI-generated content
-
-- Inspiration Assistant enhancements
-  - Added tool-calling capability (experimental): create/modify cards directly in the conversation; supports searching and viewing type structures
-  - Conversation history management: stores conversation history per project; supports adding/loading/deleting sessions
-  - Real-time tool-call feedback: shows "calling tool..." and auto-refreshes the card tree when done
-  - Improved context building: auto-injects the project structure tree, statistics, and operation history
-
-- Workflow system optimization
-  - Node auto-registration: adding a node takes only a decorator line; the front end syncs automatically
-  - Dynamic node library: node list is loaded dynamically from the back end; zero-config extension
-
-- UI and experience improvements
-  - Fixed several display issues in dark mode
-  - Optimized card editor layout and interaction details
-  - Improved visual feedback for streaming output
-
-Note: if you previously chose local development, this version requires reinstalling the back-end requirements
-
-</details>
-
-<details>
-
-<summary>v0.7.8</summary>
-
-- Workflow system (experimental) continues
-  - Added "trigger on project creation (onprojectcreate)", replacing old project templates with workflows
-  - Canvas interaction improvements: drag to create nodes, delete connections, more accurate coordinate placement
-  - Several usability improvements to the Workflow Studio and node-parameter panel
-  - Note: workflows remain experimental; currently mainly used to gradually replace hardcoded logic, with much room to extend new capabilities
-
-- Code optimization
-  - Cleaned up old project-template-related code and UI, unified into the workflow system
-
-</details>
-
-<details>
-
-<summary>v0.7.7</summary>
-
-- Optimized the Work Tags card
-  - Added tag items and option data
-  - Split tag-category data out into knowledge-base file storage; edit Work Tags in Settings → Knowledge Base and freely modify tag categories
-- Added interrupt capability for card AI generation
-- Code optimization and bug fixes; configurable via .env whether to reset knowledge base, prompts, etc. on startup
-
-</details>
-
-<details>
-
-<summary>v0.7.6</summary>
-
-- Enhanced LLM management
-  - LLM config supports "Test Connection"
-  - Supports usage settings: set token limits, call-count limits (-1 = unlimited)
-  - List shows "used (input/output/calls)" and provides "one-click reset statistics." (Current token-usage stats are approximate; different models may count differently; for reference only)
-
-- Code and experience optimizations
-
-</details>
-
-<details>
-<summary>v0.7.5</summary>
-
-- Improved: Inspiration Assistant
-  - Supports freely referencing multiple card data (cross-project, with dedup and source marking)
-  - Can select an LLM model in conversation (overrides card config)
-  - Conversation history saved and restored per project; not lost on reload
-  - Several UI and interaction refinements
-
-- Initial: Workflow (experimental)
-  - Added "Workflow Studio": canvas (Vue Flow), parameter sidebar, node library, and basic trigger CRUD
-  - Run & events: supports SSE; `run_completed` carries `affected_card_ids`; front end refreshes at card granularity
-  - Important note: currently experimental; UI interaction/DSL/validation/Runner/triggers are still being refined
-
-</details>
-
-<details>
-<summary>v0.7.0</summary>
-
-- New: Inspiration Assistant
-  - A conversational collaboration tool in the right panel, supporting real-time discussion and iterative refinement of card content.
-  - Cross-project card referencing to inject any project's card data into the conversation and spark creative collisions.
-  - Auto-references the currently selected card for seamless context switching.
-  - One-click "finalize" to apply conversation results directly to card content.
-  - Reset-conversation feature for starting fresh creative discussions.
-
-- New: Ideas Workbench
-  - A separate-window mode providing a focused creative-exploration environment.
-  - A free-card system unconstrained by project structure.
-  - Cross-project referencing and creative fusion.
-  - One-click move/copy of free cards into a formal project.
-
-- Improved: Import cards
-  - Upgraded "import free card" to "import card", supporting import from any project.
-  - Improved card selector, grouped by type with collapse/expand support.
-  - Optimized reference-data caching for better performance and responsiveness.
-
-</details>
-
-<details>
-<summary>v0.6.5</summary>
-
-- New: Project Templates — migrated to the workflow system in v0.7.8
-  - Settings page adds "Project Templates" management; configure the card types and order auto-created on new project creation, forming a reusable creation pipeline; multiple templates can be maintained.
-  - New project supports selecting a template.
-  - Back end adds template data model and CRUD API; the app writes default project templates on startup.
-
-</details>
+<a id="-system-architecture"></a>
+## 🏗️ System Architecture
+
+The following diagram illustrates the end-to-end narrative lifecycle within NovelForge-EN:
+
+```mermaid
+flowchart TD
+    subgraph Ingestion ["1. Deconstruction & Ideation"]
+        EPUB["Reference Manuscript (EPUB/TXT/DOCX)"] --> Deconstruct["Reverse-Engineering Lab"]
+        Deconstruct --> Genome["Narrative Genome & Fingerprint"]
+        Brief["Author Brief / Story Charter"] --> Ideation["Diversity-Gated Ideation"]
+        Genome --> Ideation
+        Ideation --> Architecture["Novel Architecture (Volumes & Acts)"]
+    end
+
+    subgraph StudioBible ["2. Novel Intelligence Studio"]
+        Architecture --> BibleGen["11-Ledger Bible Generation"]
+        BibleGen --> Ledgers["Living Ledgers (Characters, Rules, Threads, Promises, Power)"]
+        Directives["Director Directive Book (MUST / PREFER / AVOID)"] --> Ledgers
+    end
+
+    subgraph ChapterPlanning ["3. Dynamic Planning & Context Compiler"]
+        Ledgers --> Compiler["65k Context Compiler"]
+        Memory["Story Memory (Digests & World State)"] --> Compiler
+        Compiler --> BeatPlanner["Context-Aware Dynamic Beat Planner"]
+        BeatPlanner --> Blueprints["Chapter Blueprints (Grounding / Progression / Climax)"]
+    end
+
+    subgraph ProseCraftLayer ["4. Prose Craft Multi-Pass Engine"]
+        Blueprints --> SceneSplitter["Scene Decomposition"]
+        SceneSplitter --> Subtext["Subtext Packets & Protagonist Voice"]
+        Subtext --> SceneDraft["Scene-by-Scene Drafting with Boundary Stitching"]
+        SceneDraft --> Conformance["Webnovel Conformance Grader"]
+        Conformance --> Critic["Adversarial Critic & AI-Tic Elimination"]
+        Critic --> HookSharpener["Hook Sharpener & Cliffhanger Engineering"]
+    end
+
+    subgraph ReviewAndExport ["5. Living Canon & Export"]
+        HookSharpener --> Continuity["Continuity Guard & Story Digest"]
+        Continuity --> Proposals["Bible Update Proposals"]
+        Proposals --> Ledgers
+        Continuity --> Export["Episodic Webnovel HTML / EPUB / Markdown"]
+    end
+
+    subgraph DirectorLoop ["Director Feedback Loop"]
+        DirectorPanel["Director Control Room"] -.->|"Rewind to Ch N & Replan"| BeatPlanner
+        DirectorPanel -.->|"Inject Real-time Directive"| Directives
+    end
+```
 
 ---
 
-<a id="tech-stack"></a>
-## 🛠️ Tech Stack
+<a id="-core-systems-deep-dive"></a>
+## ⚡ 8 Core Systems Deep-Dive
 
-*   **Frontend:** Electron, Vue 3, TypeScript, Pinia, Element Plus
-*   **Backend:** FastAPI, SQLModel (Pydantic + SQLAlchemy), Uvicorn
-*   **Database:** SQLite (core data), Neo4j (knowledge graph)
+<a id="1-autonomous-novel-pipeline-end-to-end"></a>
+### 1. Autonomous Novel Pipeline (End-to-End)
+NovelForge-EN can autonomously transform a raw concept or a reference manuscript into a complete, publishable webnovel:
+- **Narrative Deconstruction**: Ingests EPUB, TXT, Markdown, or DOCX files. Automatically detects chapters, extracts structural beats, isolates character relationship trajectories, and determines pacing rhythms.
+- **Narrative Fingerprint**: Distills the source's narrative density, interiority share, dialogue-to-action ratio, and scene function patterns without copying any text, character names, or settings.
+- **Diversity-Gated Storyline Ideation**: Formulates three radically distinct narrative premises adhering strictly to author-defined boundaries and anti-cliché diversity gates.
+- **Dynamic Beat Planning**: Calibrates pacing based on chapter function:
+  - *Early Chapters (Setup / Grounding)*: 2–3 expansive beats focused on orientation, sensory grounding, and protagonist interiority.
+  - *Middle Progression*: 3–4 beats advancing conflicts and tactical progression.
+  - *Escalation & Climax*: 4–6 rapid beats maximizing tension, reversals, and cliffhangers.
+- **Whole-Novel Audit & Publishing**: Runs full continuity checks, reward drought audits, and exports clean EPUBs with embedded TOC, metadata, and webnovel episodic HTML.
+
+<a id="2-director-deep-input--live-control-room"></a>
+### 2. Director Deep-Input & Live Control Room
+Never lose control of an autonomous generation run. The **Director Control Room** allows authors to intervene dynamically in real time:
+- **Live Directive Book**: Submit standing instructions at three distinct scopes:
+  - `novel`: Applies globally across all remaining volumes.
+  - `arc`: Governs the current volume or major plot arc.
+  - `chapter`: Injected strictly into the immediate next chapter.
+  - Categorized by authority: `MUST` (strict requirement), `PREFER` (soft preference), `AVOID` (negative constraint), and `IDEA` (creative inspiration).
+- **Dynamic Canon Rewind & Replan**: If chapter 14 takes an unintended turn:
+  1. Author enters: *"Redo from chapter 14: Protagonist hides his identity from the guild master."*
+  2. Canon and ledgers immediately roll back to chapter 13.
+  3. Discarded chapters are preserved in an immutable history archive.
+  4. The chapter blueprint window is dynamically re-planned under the new directive.
+  5. Generation resumes seamlessly.
+
+<a id="3-webnovel-style-engine--conformance-grader"></a>
+### 3. Webnovel Style Engine & Conformance Grader
+Traditional LLM prose sounds like dry Western literary fiction or academic summaries. The **Webnovel Style Engine** enforces authentic serialized webnovel craft:
+- **Mobile-Optimized Rhythm**: Short, punchy 1–2 sentence paragraphs optimized for mobile reading.
+- **Dual-Layer Interiority**: The protagonist's private commentary rendered in `'single quotes'` immediately following significant dialogue or high-stakes developments.
+- **Status & System Windows**: Clean, bracketed status blocks (`[System]`, `[Skill Activated]`) treated as narrative beats rather than dumped text.
+- **19 Subgenre Archetypes**: Instant calibration for Regression, System Apocalypse, Hunter/Gate, Tower Climb, Murim, Cultivation, Villainess Transmigration, Academy, and more.
+- **Deterministic 6-Dimension Conformance Grader**: Analyzes every draft without model overhead:
+  1. *Rhythm*: Paragraph lengths, sentence density, and line-break cadence.
+  2. *Inner Voice*: Frequency and placement of protagonist private verdicts.
+  3. *Conventions*: Status window formatting, SFX lines, and English-adapted address forms.
+  4. *Momentum*: Forward narrative velocity and absence of recap bloat.
+  5. *Reward Cadence*: Frequency of micro-payoffs, reputation shifts, and face-slaps.
+  6. *Ending Hook*: Detection of cliffhanger strength vs. passive fade-outs.
+
+<a id="4-prose-craft-multi-pass-engine"></a>
+### 4. Prose Craft Multi-Pass Engine
+Chapter generation is split into dedicated, specialized architectural passes:
+- **Scene-by-Scene Decomposition**: Beats are grouped into 2–4 cohesive scenes. Each scene is drafted with a dedicated scene brief carrying forward the previous scene's *exact* ending lines, last speaker, physical coordinates, and carried tension.
+- **Character Subtext Packets**: Before drafting dialogue, the engine compiles:
+  - What each present character wants from the protagonist.
+  - What they are actively suppressing or concealing.
+  - Leverage, conversational tactics, and speech mannerisms.
+  - What the protagonist is likely to misread.
+- **Protagonist Voice Dossier**: Injects private humor, self-deception patterns, calculation styles, and cognitive biases.
+- **Deterministic AI-Tic Elimination**: Identifies and scrubs over 50 mechanical AI prose habits:
+  - *"Not X, but Y"* / *"Not merely X, but Y"*
+  - *"A testament to..."* / *"A silent reminder of..."*
+  - *"The man who..."* / *"The woman who..."*
+  - *"A breath he didn't know he was holding"*
+  - Emotional cocktail stacking (*"A mixture of fear, awe, and grudging respect"*)
+  - Therapy-speak and anachronistic psychological jargon
+- **Hook Sharpener**: Detects soft endings and rewrites the final lines into crisis, revelation, decision, or threat-arrival cliffhangers.
+
+<a id="5-65k-context-compiler--story-memory"></a>
+### 5. 65k Context Compiler & Story Memory
+To take full advantage of long-context models like **Kimi K3** and **Gemini 2.5 Pro**, NovelForge-EN utilizes a **120,000 character (~30k+ token)** context compiler:
+- **Structured Chapter Digests**: After every chapter, a background extraction isolates key events, persistent state changes, knowledge deltas, opened/closed hooks, promises, and physical endings.
+- **Deterministic Story So Far Compiler**: Generates tiered recaps:
+  - *Immediate Past (Last 3 Chapters)*: Full scene-level resolution.
+  - *Current Arc (Chapters 4–15)*: Compressed beat summaries.
+  - *Distant Canon*: Milestone summaries and permanent world alterations.
+- **Carry-Forward World State**: Durably tracks who is injured, who holds specific key items, faction diplomatic states, and who is dead.
+- **Continuity Guard**: Scans drafts for prohibited reveals, dead entities taking actions, teleporting characters, contradictory timelines, and dropped promises.
+
+<a id="6-novel-intelligence-studio-novel-bible-20"></a>
+### 6. Novel Intelligence Studio (Novel Bible 2.0)
+The **Novel Bible** is a living, evidence-backed knowledge network composed of 11 interlocking ledgers:
+1. **Story Foundation**: Premise, themes, philosophical conflict, narrative tone.
+2. **Reader Contract**: Genre promises, dopamine cadence, taboos, and payoff timetables.
+3. **Theme Map**: Visualized motif progression and symbolic stakes.
+4. **Power System & Rules**: Tier ladders, hard costs, limits, backlash mechanics, and resource scarcity.
+5. **Character Dossiers & Voices**: Aliases, speech patterns, private agendas, and consistency rules.
+6. **Relationship Matrices**: Dynamic tracking of Trust, Affection, Fear, Dependency, and Resentment.
+7. **Knowledge Facts Matrix**: Tracks who knows what, who suspects what, and who holds false beliefs.
+8. **Plot Threads Ledger**: Active, dormant, and resolved plot arcs with overdue alerts.
+9. **Promises & Payoffs**: Explicit setup-and-payoff contracts with chapter deadlines.
+10. **World Rules & Timeline**: Immutable physical laws and chronological event history.
+11. **Webnovel Style Profile**: Platform targets, POV mechanics, and genre engines.
+
+- **Living Bible Proposal System**: As chapters are written, the engine proposes updates. Authors can accept, reject, edit, or tag entries as *plan-not-canon* or *unreliable narration*.
+- **Author Field Locks**: Human edits are protected with author locks; automated background sync will never overwrite locked fields.
+
+<a id="7-studio-workbench-cards--workflow-automation"></a>
+### 7. Studio Workbench, Cards & Workflow Automation
+For authors who prefer hands-on writing or hybrid collaboration:
+- **Schema-First Card Modeling**: Define custom JSON Schemas for any entity type (`Settings → Card Types`) with inheritance, embedded records, and field-level validation.
+- **Instruction-Streaming AI Card Generation**: Generate cards field-by-field in real time. Submit feedback to refine specific fields without regenerating the entire card.
+- **Inspiration Assistant**: A dedicated conversational partner in the side panel equipped with ReAct tool-calling, cross-project card referencing, and thinking mode.
+- **Ideas Workbench**: A scratchpad environment for brainstorming and collecting material that can be converted into formal project cards with one click.
+- **Code-Style Workflow Studio**: Build deterministic or AI-assisted automation pipelines using Python-style execution syntax, with natural language generation via the **Workflow Agent**.
+- **Dual Graph Engine**: Store entity relationships in SQLite or connect directly to local **Neo4j** instances.
+
+<a id="8-enterprise-hardening--manuscript-safety"></a>
+### 8. Enterprise Hardening & Manuscript Safety
+NovelForge-EN is built with strict production guarantees:
+- **Pre-Migration SQLite Backups**: Every schema migration automatically creates a timestamped database backup (`.pre-<rev>-<stamp>.bak`).
+- **Server-Side Revision History**: Every overwrite (manual save, AI regeneration, or architecture upsert) creates an immutable server snapshot with diff viewing and one-click rollback.
+- **Concurrency-Safe Budget Engine**: Distributed worker leases, repair-call reservations, and conservative charging of in-flight provider requests prevent budget overruns.
+- **Credential Masking**: All LLM provider keys are masked in API responses (`••••last4`).
+- **Zero Disruption Guarantee**: Zero system-wide VPN requirements; operates cleanly on standard network stacks with application-level proxy support.
 
 ---
 
-<a id="getting-started"></a>
+<a id="-visual-tour--screenshots"></a>
+## 📸 Visual Tour & Screenshot Showcase
+
+### 1. Autonomous Novel Studio & Creation Wizard
+Configure full autonomous pipeline runs: upload a reference manuscript, set quality presets, define the Story Charter brief, and choose your Webnovel Style Profile.
+
+<p align="center">
+  <img src="docImgs/autonomous_studio.png" alt="Autonomous Studio Creation Wizard" width="95%" style="border-radius: 6px; border: 1px solid #e1e4e8;" />
+</p>
+
+---
+
+### 2. Project Bookshelf & Dashboard
+Centralized management for all your creative projects, reverse-engineered reference bibles, and active manuscripts.
+
+<p align="center">
+  <img src="docImgs/dashboard_view.png" alt="NovelForge Project Bookshelf" width="95%" style="border-radius: 6px; border: 1px solid #e1e4e8;" />
+</p>
+
+---
+
+### 3. Novel Intelligence Studio & Story Charter
+The living command center for world lore, character dossiers, plot threads, and the foundational Story Charter.
+
+<p align="center">
+  <img src="docImgs/novel_bible_view.png" alt="Novel Intelligence Studio" width="95%" style="border-radius: 6px; border: 1px solid #e1e4e8;" />
+</p>
+
+---
+
+### 4. Card Library, Card Hierarchy & Inspiration Assistant
+Explore structured project cards, manage parent-child relationships, and brainstorm with the ReAct Inspiration Assistant.
+
+<p align="center">
+  <img src="docImgs/project_editor_view.png" alt="Card Library and Inspiration Assistant" width="95%" style="border-radius: 6px; border: 1px solid #e1e4e8;" />
+</p>
+
+---
+
+### 5. Chapter Studio: Context Injection & Writing Environment
+The core drafting environment with real-time entity context injection, word-count control, and quick contextual polishing.
+
+<p align="center">
+  <img src="docImgs/README/image-27.png" alt="Chapter Studio Drafting" width="48%" style="border-radius: 6px; border: 1px solid #e1e4e8;" />
+  <img src="docImgs/README/image-8.png" alt="Contextual Polish and Rewrite" width="48%" style="border-radius: 6px; border: 1px solid #e1e4e8;" />
+</p>
+
+---
+
+### 6. Streaming Field-Level AI Card Generation
+Field-by-field interactive AI generation. Review, refine, and provide feedback on individual fields before committing.
+
+<p align="center">
+  <img src="docImgs/README/image-28.png" alt="Field-Level Streaming Generation" width="48%" style="border-radius: 6px; border: 1px solid #e1e4e8;" />
+  <img src="docImgs/README/image-29.png" alt="Card Feedback and Confirmation" width="48%" style="border-radius: 6px; border: 1px solid #e1e4e8;" />
+</p>
+
+---
+
+### 7. Workflow Studio & Natural Language Workflow Agent
+Build automated pipeline workflows visually or via Python-style code, or let the natural language Workflow Agent construct them for you.
+
+<p align="center">
+  <img src="docImgs/README/image-24.png" alt="Visual Workflow Canvas" width="48%" style="border-radius: 6px; border: 1px solid #e1e4e8;" />
+  <img src="docImgs/README/image-30.png" alt="Code-Style Workflow Editor" width="48%" style="border-radius: 6px; border: 1px solid #e1e4e8;" />
+</p>
+
+<p align="center">
+  <img src="docImgs/README/image-35.png" alt="Workflow Agent Multi-Step Execution" width="95%" style="border-radius: 6px; border: 1px solid #e1e4e8;" />
+</p>
+
+---
+
+### 8. Schema-First Studio & Knowledge Graph
+Design dynamic card data schemas and explore entity relationship networks stored in SQLite or Neo4j.
+
+<p align="center">
+  <img src="docImgs/README/image-10.png" alt="Schema Studio Builder" width="48%" style="border-radius: 6px; border: 1px solid #e1e4e8;" />
+  <img src="docImgs/README/image-5.png" alt="Knowledge Graph Entity Extraction" width="48%" style="border-radius: 6px; border: 1px solid #e1e4e8;" />
+</p>
+
+---
+
+### 9. Ideas Workbench
+A free-form creative scratchpad for capturing inspiration, cross-referencing lore, and migrating ideas into formal novel projects.
+
+<p align="center">
+  <img src="docImgs/README/image-21.png" alt="Ideas Workbench Canvas" width="48%" style="border-radius: 6px; border: 1px solid #e1e4e8;" />
+  <img src="docImgs/README/image-22.png" alt="Cross-Project Card Migration" width="48%" style="border-radius: 6px; border: 1px solid #e1e4e8;" />
+</p>
+
+---
+
+<a id="-getting-started"></a>
 ## 🚀 Getting Started
 
-> **Operations documentation** (clean install and verification commands, database
-> migrations, Kimi K3 configuration and preflight, hard budgets, pause/resume/recovery,
-> the local-only security boundary, CI and the live qualification procedure) lives in
-> [`docs/`](./docs): [setup](./docs/setup.md) · [migrations](./docs/migrations.md) ·
-> [Kimi K3 & autonomous pipeline](./docs/kimi-k3.md) · [security boundary](./docs/security.md) ·
-> [CI & branch protection](./docs/ci.md) · [live qualification](./docs/live-qualification.md).
->
-> The backend is a **local, single-user** service: it binds to `127.0.0.1:54321` by default and has
-> no authentication. Do not expose it on other interfaces.
+<a id="prerequisites"></a>
+### Prerequisites
+- **Python**: Version `3.11` or `3.12`
+- **Node.js**: Version `18.x` or `20.x` with `npm`
+- **Operating System**: Windows 10/11, macOS, or Linux (Ubuntu 20.04+)
+- **Optional**: Neo4j Desktop 5.16+ (SQLite is enabled by default for graph relationships)
 
-Whether you want to try it directly or get involved in development, it's easy to start.
+---
 
-### 0. Neo4j Desktop (optional, not required)
+<a id="windows-quick-start-one-click"></a>
+### Windows Quick Start (One-Click)
 
-The project now uses SQLite by default to implement relationship-graph storage, but you can also switch to Neo4j. Steps:
+The repository root includes three automated batch scripts:
 
-*   Download and install **Neo4j Desktop**, recommended version **5.16** or higher.
-*   Download link: [Neo4j Desktop](https://neo4j.com/download/)
-*   After installing, create a local database instance and make sure it is **running**. Default connection info can be configured in the `.env` file.
-![alt text](docImgs/README/image-6.png)
-
-### Option 1: Run from source (developer / latest features) (non-developers should use Option 2)
-
-#### Prerequisites
-
-- **Python 3.11+** on PATH
-- **Node.js 18+** and npm
-- (Optional) **Neo4j Desktop 5.16+** — only if you prefer Neo4j over the default SQLite relationship store
-
-#### Quick start (Windows, recommended)
-
-Three batch scripts at the repository root handle everything:
-
-1. **Install dependencies** (run once, or after pulling updates that change `requirements.txt` / `package.json`):
-
-   Double-click **`install.bat`**, or in a terminal:
+1. **Install Dependencies**:
    ```bat
    install.bat
    ```
-   This will:
-   - Create a Python virtual environment at `backend/venv` (if it does not already exist)
-   - Upgrade `pip` and install all backend dependencies from `backend/requirements.txt` into that venv
-   - Run `npm install` inside `frontend/`
+   *Creates the Python virtual environment at `backend/venv`, installs backend requirements, and runs `npm install` for the frontend.*
 
-2. **Start the backend** (FastAPI on port 54321):
-
-   Double-click **`run-backend.bat`**, or:
+2. **Start Backend Server**:
    ```bat
    run-backend.bat
    ```
-   This launches `backend/main.py` using `backend/venv`'s `python.exe`.
+   *Starts the FastAPI backend at `http://127.0.0.1:54321`.*
 
-3. **Start the frontend** (Electron dev server):
-
-   Wait a few seconds for the backend to finish starting, then double-click **`run-frontend.bat`**, or:
+3. **Start Frontend Client**:
    ```bat
    run-frontend.bat
    ```
-   This runs `npm run dev` inside `frontend/`.
+   *Launches the Electron desktop application and Vite dev server.*
 
-> Each script opens its own window. Close the corresponding window to stop that service.
+---
 
-#### Manual setup (cross-platform)
+<a id="linux--macos-installation"></a>
+### Linux / macOS Installation
 
-**1. Backend (Python / FastAPI)**
 ```bash
-# Clone the repo
-git clone https://github.com/nolepguy/NovelForge-EN.git
-cd NovelForge-EN/backend
+# 1. Clone the repository
+git clone https://github.com/Sigmaaaaa12343/NovelForge-EN.git
+cd NovelForge-EN
 
-# Create and activate a virtual environment (Python 3.11+)
-python -m venv venv
-# Windows:
-venv\Scripts\activate
-# macOS/Linux:
-# source venv/bin/activate
-
-# Install dependencies
+# 2. Setup Backend Environment
+cd backend
+python3 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
 pip install -r requirements.txt
 
-# Copy the example env file and edit if needed
-copy .env.example .env      # Windows
-# cp .env.example .env      # macOS/Linux
+# Configure environment
+cp .env.example .env
 
-# Run the backend service
-python main.py
+# Run database migrations
+alembic upgrade head
+
+# Start FastAPI backend
+python3 main.py
 ```
 
-**2. Frontend (Node.js / Electron)**
-```bash
-# Enter the frontend directory
-cd ../frontend
+In a second terminal:
 
-# Install dependencies
+```bash
+# 3. Setup and Launch Frontend
+cd NovelForge-EN/frontend
 npm install
 
-# Start the dev server
+# Run as Electron desktop app:
 npm run dev
-# You can also start the web page with the following command
-# npm run dev:web
+
+# Or run in standard web browser mode:
+npm run dev:web
 ```
 
-**3. One command to start both front and back end (npm, from repo root)**
-```bash
-npm run dev
-```
-
-#### Important: BOOTSTRAP_OVERWRITE in .env
-
-> When starting the backend, the system initializes/updates built-in resources (knowledge base, prompts, workflows, etc.) as needed. Whether to overwrite is controlled by `BOOTSTRAP_OVERWRITE` in `.env`.
-
-- Recommended settings:
-  - If you have not directly modified built-in resources, it is recommended to set:
-    ```ini
-    BOOTSTRAP_OVERWRITE=true
-    ```
-    This auto-syncs the latest built-in knowledge base/prompts/workflows on version upgrade or restart.
-  - If you have directly modified "built-in" resources, it is recommended to set it to `false` to avoid being overwritten.
-
-- Recommendations (to avoid being overwritten):
-  - Do not directly edit "built-in" resources.
-  - For customization, create a copy (copy the knowledge base/prompt/workflow and rename it) and edit the copy. This way, even if `BOOTSTRAP_OVERWRITE=true` later, your custom copy will not be overwritten by the update logic.
+Open your browser to `http://localhost:5173` if running in web mode.
 
 ---
 
-## ✍️ Creation Workflow
-
-1.  **Configure the LLM**
-    *   After first launch, add your AI model config in Settings, such as API Key, Base URL, etc.
-    ![alt text](docImgs/README/image.png)
-    Recommend using an LLM at the Gemini 2.5 Pro level or above for creation.
-
-2.  **Create a project and initialize the workflow**
-    *   When creating a new project, you can choose an initialization workflow (usually `onprojectcreate` type) to auto-create preset cards. The system has a built-in "Project Creation · Snowflake Method" workflow that auto-creates a complete card tree following the snowflake method.
-    ![alt text](docImgs/README/image-1.png)
-
-3.  **Top-down, fill in core settings**
-    *   Progress from the top-level card (one-line pitch → story outline → worldview → core blueprint).
-    *   Each card can open the AI generation dialog, enter this round's requirements, and the system streams generation at the field level.
-    *   After generation, you can "confirm" to commit directly, or submit feedback to keep iterating — no need to redo the whole card if unsatisfied.
-    After finishing the Core Blueprint card and clicking save, volume cards are auto-created based on the volume count.
-    Then continue with the volume-outline creation, starting from Volume 1.
-    Once done, stage-outline sub-cards and a writing-guide card are auto-created based on the stage count. It is recommended to generate the writing-guide card first to produce writing guidance, then proceed with stage-outline creation.
-    ![alt text](docImgs/README/image-2.png)
-    AI card-generation example flow:
-    ![alt text](docImgs/README/image-28.png)
-    ![alt text](docImgs/README/image-29.png)
-    When done, click finish, then save the card. Or, if unsatisfied with certain fields, enter guidance as feedback.
-
-4.  **Refine content with the Inspiration Assistant**
-    *   While writing, if you want to further polish or optimize card content, you can use the Inspiration Assistant on the right at any time.
-    *   After selecting any card, the Inspiration Assistant auto-reads that card's content for easy reference and thinking.
-    *   You can directly ask the assistant specific questions, such as "Is this character's motivation reasonable?" or "How can I make this scene more tense?"
-    *   The Inspiration Assistant gives targeted suggestions based on the current card content, and you can go back and forth with the assistant to gradually refine ideas.
-    *   Via the "Add Reference" button, you can also pull in related cards from this or other projects to spark more creativity.
-    *   The Inspiration Assistant is context-aware and can use tools to modify/create card content (experimental).
-    ![Alt text](docImgs/README/image-20.png)
-
-#### AI Generation Dialog vs. Inspiration Assistant (how to choose)
-
-- **AI Generation Dialog**: focuses on the current single card, for quickly generating and iterating that card's content; the session lasts only until this generation flow ends and clears when the dialog is closed.
-- **Inspiration Assistant**: for sustained cross-card, cross-project conversation and creation; can reference multiple cards for analysis and linked creation, with persistently saved conversation history.
-- **Suggested usage**:
-  - Goal is "write this one card well" → use the AI Generation Dialog.
-  - Goal is "cross-setting linked thinking / long-term discussion / multi-card collaboration" → use the Inspiration Assistant.
-
-5.  **After finishing the stage outline, chapter outlines and chapter-body cards are auto-generated, and the entities each chapter needs are auto-injected.**
-    ![alt text](docImgs/README/image-3.png)
-
-6.  **Enter chapter writing**
-    *   After the above steps, click the corresponding chapter-body card to open the chapter editor and enter the core writing interface. The right-side context panel auto-prepares all background material needed for the current chapter.
-    ![Alt text](docImgs/README/image-27.png)
-
-    *    Click continue-writing for AI generation (if there is no content, it starts writing from scratch).
-    *    When continuing, you can choose two word-count control modes:
-         - **Prompt Constraint**: only constrains word count at the prompt level; text is more natural and saves tokens.
-         - **Control Mode**: splits the target word count into multiple rounds with budgets, suitable when you need stricter control over the chapter's total word count, but consumes more tokens.
-    *    If unsatisfied with the generated content, select it, right-click for quick edit, enter a request, and click polish/expand to rewrite that part.
-    ![Alt text](docImgs/README/image-8.png)
-
-    *    The chapter body also supports direct review:
-         - Click the **Review** button at the top to run a review
-         - Switch review prompts via the dropdown to the right of the button
-         - The review returns a draft first, then is saved as a review-result card after confirmation
-         - Saved results are auto-placed in the root-level **Review Results** folder and can be viewed in the right panel
-
-    *   When content creation is done, click extract-to-graph to parse character relationships and store them in the knowledge graph for reference during later writing.
-    ![Alt text](docImgs/README/image-7.png)
-    After extraction, click confirm to save into the Neo4j database.
-    ![alt text](docImgs/README/image-5.png)
-
-    *    It is recommended to also extract character dynamic information, which can use a cheaper model.
-
-
-    *    After the above steps, when creating the next chapter, relevant participating entity info is auto-injected.
-    ![alt text](docImgs/README/image-9.png)
-
-7.  **Ideas Workbench: capture creative sparks**
-    *   Got a new idea but not sure which project it belongs to? Click the "Ideas" button at the top to open the standalone Ideas Workbench window.
-    *   Here you can jot down thoughts and freely create cards of various types without worrying about project structure, focusing on capturing inspiration.
-    *   The Inspiration Assistant on the right supports referencing any project's card content, making it easy to look up, compare, and combine across projects for more inspiration.
-    *   When an idea takes shape, use the "Move/Copy to Project" feature at the top to one-click file the free card into a formal project, naturally connecting it to subsequent creation.
-    ![Alt text](docImgs/README/image-21.png)
-    ![Alt text](docImgs/README/image-22.png)
----
-
-## ⚙️ Advanced Features & Configuration
-
-While NovelForge provides a recommended creation workflow, its real power lies in its high flexibility. You can discard the presets entirely and use the following tools to compose your own creation system.
-
-<a id="schema-first"></a>
-### Schema-first: Type/Instance Structure & Parameters
-
-*   In `Settings → Card Types`, use the structure builder to define a `json_schema` for a type (supports basic types, relation(embed), tuple, etc.). The type Schema serves as the default structure for that type's cards.
-    ![alt text](docImgs/README/image-10.png)
-    ![alt text](docImgs/README/image-11.png)
-
-*   In a specific card, you can open `Structure` (Schema Studio) to override that card instance's structure, or one-click "apply to type."
-    ![alt text](docImgs/README/image-12.png)
-
-    ![alt text](docImgs/README/image-13.png)
-
-    After applying to type, subsequently created cards of that type will use the new structure.
-
-*   Card AI parameters: set model, prompt, temperature and other params via the editor toolbar (`llm_config_id`, `prompt_name`, `temperature`, `max_tokens`, `timeout`).
-    ![alt text](docImgs/README/image-14.png)
-
-*  After the above, you can create cards of that type in the project and run AI generation. The system uses that card's "effective Schema" for structured validation and output.
-    ![alt text](docImgs/README/image-15.png)
-    When creating a new card, you can also drag from an existing card to below and auto-create it.
-    ![alt text](docImgs/README/image-16.png)
-
-    ![alt text](docImgs/README/image-17.png)
-
-*  Schema supports embedding (`$ref` to type `$defs`), so you can compose and reuse existing structures for composite-capability building.
-
-    ![alt text](docImgs/README/image-18.png)
-
-Note: prefer adding new models rather than modifying existing model structures, to avoid conflicting with existing data.
-
-### Chapter Review & Generic Review
-
-Besides the chapter body, other cards (e.g. stage outline, generic text) can also directly use the **Review** button at the top.
-
-- The review entry is unified as a single button, with a prompt switch to its right
-- Stage outline defaults to the `Stage Review` prompt
-- Regular cards default to the `Generic Review` prompt
-- Review results are uniformly saved as `Content Review Cards`
-
-This way you can configure different review standards for different card types while keeping a unified review-result structure and viewing method.
-
-
-<a id="prompt-workshop"></a>
-### Prompt Workshop
-
-*   Behind every AI feature is an editable prompt template. You can modify preset templates here or create brand-new ones.
-*   **Knowledge-base injection**: supports dynamically referencing "knowledge base" content in prompts via the `@KB{name=kb-name}` syntax, giving the AI richer background information.
-
-<a id="context-dsl"></a>
-### Context Injection (@DSL) in Depth
-
-This is a NovelForge signature feature. It lets you precisely reference any data in the project within a prompt template using the `@` symbol, injected as context.
-
-*   **By title**: `@CardTitle` or `@CardTitle.content.someField`
-*   **By type**: `@type:CharacterCard` (all character cards)
-*   **Special references**: `@self` (current card), `@parent` (parent card)
-*   **Powerful filters**:
-    *   `[previous]`: get the previous sibling card.
-    *   `[previous:global:n]`: get the nearest n same-type cards in global order (tree pre-order).
-    *   `[sibling]`: get all sibling cards.
-    *   `[index=...]`: get by ordinal, supports expressions, e.g. `$self.content.volume_number - 1`.
-    *   `[filter:...]`: filter by condition, e.g. `[filter:content.level > 5]` or `[filter:content.name in $self.content.entity_list]`.
-*   **Field-level selection**: you can select the entire card data or just a specific card field.
-
-For example, referencing the titles and body of the nearest 3 chapters:
-![Alt text](docImgs/README/image-23.png)
-
-<a id="workflow-system"></a>
-### Workflow System (Code-style Workflows + Workflow Agent)
-
-The workflow system orchestrates common creation actions (project initialization, auto-generating sub-cards on save, batch content processing, etc.) into reusable flows that run automatically at the right time.
-
-The code-style mainline refactor is complete; the old DAG-style workflow approach has been removed.
-
-<a id="workflow-studio"></a>
-#### Workflow System
-
-- Visit the "Workflow" page to edit workflows in both visual and code views.
-- Quickly build a flow via the node library, or directly write/modify code.
-- The parameter panel supports real-time editing and validation; changes can be safely applied to the workflow code.
-- View run records, execution results, and error info for easier iterative debugging.
-
-![alt text](docImgs/README/image-30.png)
-
-<a id="workflow-triggers"></a>
-#### Trigger Configuration
-
-Each workflow can be configured with one or more triggers defining when it auto-executes:
-
-- **Trigger on save**: auto-executes when a specified type of card is saved
-- **Trigger on project creation**: auto-executes after a new project is created (commonly used for project initialization)
-
-
-<a id="workflow-status-bar"></a>
-#### Workflow Status Bar (Global Background Execution)
-
-- After a workflow runs, its status shows in the global workflow status bar (not limited to the workflow page).
-- You can switch to other pages and keep creating; the workflow runs in the background.
-- The status bar shows the number running, the current node, overall progress, and completion state.
-
-![alt text](docImgs/README/image-25.png)
-
-<a id="workflow-progress-recovery"></a>
-#### Node-level Progress & Interrupt Recovery (Beta)
-
-- The system supports node-level progress reporting, so you can see "which node it's currently executing."
-- Supports pause/resume execution, retaining run state for re-running.
-- Supports run-record persistence and viewing.
-- Note: this capability is usable; complex flows may have a few edge issues (e.g. certain recovery scenarios).
-
-<a id="workflow-persistent-vs-temporary"></a>
-#### Persistent vs. Temporary Workflows
-
-- **Temporary workflow (default)**: run records are for current viewing and debugging, and are auto-cleaned up later.
-- **Persistent workflow**: after enabling "persist saves," run records are retained long-term (subject to the system retention policy).
-
-
-<a id="workflow-builtins"></a>
-#### Built-in Workflow Templates
-
-The system ships with several common workflows, ready to use or as references:
-
-- **Project Creation · Snowflake Method**: auto-creates the initial card structure following the snowflake method on new project creation
-- **Worldview → Organization**: auto-generates organization cards from the worldview's faction list
-- **Core Blueprint → Seed Cards**: auto-creates character cards, scene cards, and volume cards based on the blueprint content
-- **Volume Outline → Seed Cards**: auto-creates stage outlines and writing guides based on the volume outline
-- **Stage Outline → Chapter Cards**: auto-creates chapter outlines and body cards based on the stage outline's chapter list
-- **Book-Breakdown Workflow**: for breaking down an existing text's structure and landing it into the card system
-
-<a id="workflow-project-init"></a>
-#### Project Initialization Workflows
-
-When creating a new project, you can choose an `onprojectcreate`-trigger workflow as a project template:
-
-- Defaults to "Project Creation · Snowflake Method," which auto-creates Work Tags, Special Ability, One-line Pitch, Story Outline, Worldview Setting, Core Blueprint, etc.
-- You can also create your own project-init workflow in the Workflow Studio to fully customize the project's starting structure
-- Supports complex initialization logic, such as creating different card structures based on conditions
-
-![Alt text](docImgs/README/image-26.png)
-
-<a id="workflow-agent"></a>
-#### Workflow Agent (Write Workflows in Natural Language)
-
-- On the workflow page, open the Workflow Agent and tell it your goal, e.g. "Create a multi-AI debate flow and output it to a specified project."
-- The Agent auto-reads the current workflow, generates a modification plan, validates it, and gives an applicable result.
-- This way, you don't need to build the workflow yourself; you can quickly implement complex flows.
-- May still have some bugs.
-
-![alt text](docImgs/README/image-31.png)
-![alt text](docImgs/README/image-32.png)
-![alt text](docImgs/README/image-33.png)
-![alt text](docImgs/README/image-34.png)
-![alt text](docImgs/README/image-35.png)
-(The right-side execution panel shows detailed progress; the workflow status bar is a simple progress display.)
-For long-running tasks, you can switch to other views instead of waiting on the workflow page. When done, the workflow status bar flashes to notify you.
-
-<a id="workflow-examples"></a>
-#### Workflow Usage Example
-Book-Breakdown Workflow
-First create an empty project
-![alt text](docImgs/README/image-36.png)
-
-Go to the workflow page and select the book-breakdown workflow
-
-![alt text](docImgs/README/image-37.png)
-
-Set the target project, model name, and novel chapter directory
-
-![alt text](docImgs/README/image-38.png)
-
-Note: novel files must be stored in a preset format, e.g. split into txt files per chapter
-![alt text](docImgs/README/image-41.png)
-
-Click execute to run it
-
-
-Breakdown result:
-![alt text](docImgs/README/image-39.png)
-
-Extract chapter outline → divide stage storylines → run a global analysis based on all stage storylines
+<a id="llm-provider-configuration"></a>
+### LLM Provider Configuration
+
+Navigate to **Settings → LLM Config** in the app to configure your model credentials. NovelForge-EN supports all major AI providers:
+
+- **Kimi K3 (Moonshot AI)**: Recommended for full 65k context compiler autonomous pipeline.
+- **OpenAI**: GPT-4o, GPT-4o-mini, o1, o3-mini.
+- **Anthropic**: Claude 3.5 Sonnet, Claude 3.7 Sonnet.
+- **Google Gemini**: Gemini 1.5 Pro, Gemini 2.0 Flash, Gemini 2.5 Pro.
+- **DeepSeek**: DeepSeek-V3, DeepSeek-R1 (via OpenAI-compatible endpoint).
+- **Local / Self-Hosted**: Ollama, vLLM, LocalAI, LM Studio.
+
+> [!NOTE]
+> All API credentials are encrypted locally and masked in all UI displays and API responses (`••••last4`).
 
 ---
 
-## License
-This project uses a dual-license model:
+<a id="-creation-modes"></a>
+## 🎨 Creation Workflows
 
-- By default, this project is licensed under the GNU Affero General Public License v3.0 (AGPLv3).
-- Service-type commercial use: providing this project (or its modified version) as a backend to third parties as SaaS, hosting, or other forms requires obtaining a commercial license from the author.
+NovelForge-EN offers three primary ways to write novels:
 
-Please comply with the open-source license terms and obtain the corresponding authorization where applicable.
+### Mode A: Fully Autonomous Pipeline
+1. Click **Create Novel** in the top navigation.
+2. Drop an existing EPUB/TXT manuscript or input a story brief into the **Story Charter**.
+3. Select your target **Platform** and **Subgenre Template** (or let the engine auto-detect).
+4. Choose your **Quality / Budget Preset** (`Economy`, `Balanced`, `Quality`).
+5. Click **Start Generation**.
+6. Monitor progress in real time. Use the **Director Control Room** to add directives or rewind chapters if necessary.
+7. Export your finished novel to EPUB or episodic HTML.
+
+### Mode B: Novel Intelligence Studio (Human-in-the-Loop)
+1. Create a new project with the **Novel Intelligence Studio** template.
+2. Fill out or AI-generate the 11 living ledgers (Foundation, Characters, Power System, World Rules, etc.).
+3. Lock important canonical fields using **Author Locks**.
+4. Generate volume and chapter blueprints.
+5. In the Chapter Editor, trigger multi-pass drafting with context injection.
+6. Review proposed Bible updates after each chapter to keep lore evergreen.
+
+### Mode C: Snowflake Method & Visual Workflows
+1. Create a project using the **Snowflake Method** template.
+2. Expand your story step-by-step: One-Line Pitch → Story Outline → Worldview Setting → Core Blueprint → Volume Outlines → Stage Outlines → Chapter Outlines.
+3. Use the **Inspiration Assistant** for targeted character development and scene troubleshooting.
+4. Automate recurring tasks with custom visual workflows in the **Workflow Studio**.
 
 ---
 
-<a id="project-structure"></a>
-## 📂 Project Structure
+<a id="-prose-craft-presets"></a>
+## ✒️ Prose Craft Presets Comparison
+
+NovelForge-EN provides four distinct quality presets for chapter drafting and polishing:
+
+| Preset | Drafting Method | Subtext Packets | Protagonist Voice | AI-Tic Scrubbing | Hook Sharpener | Relative Cost | Best For |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| **`Legacy single-shot`** | Single LLM Call | ❌ | ❌ | ❌ | ❌ | 1.0x | Quick prototyping, background outlines |
+| **`Single-shot + critic`** | Single Call + Review | ❌ | ❌ | Basic | Basic | 1.8x | Budget-conscious serialization |
+| **`Scenes + polish`** | Scene Decomposition | ✅ | ✅ | Standard | ✅ | 3.2x | High-quality standard chapters |
+| **`Elite multi-pass`** | Scene-by-Scene Multi-Pass | ✅ | ✅ | **Full Deterministic** | **Adversarial** | 5.5x | Flagship releases, premiere & climax chapters |
+
+---
+
+<a id="-webnovel-subgenres"></a>
+## 🎭 19 Webnovel Subgenres & Platforms
+
+### Supported Platforms
+- **Novelpia**: Mobile-first cadence, frequent dopamine loops, system status windows, lighthearted inner monologues.
+- **Munpia**: Traditional Korean fantasy/murim standards, disciplined progression, serious stakes, honorific conventions.
+- **KakaoPage**: High-stakes cliffhangers, page-turner episodic structures, romance-fantasy / rofan tropes.
+- **Naver Series**: Polished modern fantasy, returnee mechanics, corporate/hunter guild dynamics.
+- **Royal Road**: Western progression fantasy, LitRPG mechanics, detailed statistical leveling, expansive worldbuilding.
+
+### 19 Built-in Subgenre Archetypes
+1. `regression` — Second chance, future knowledge advantage, vengeance or tragedy prevention.
+2. `system_apocalypse` — Earth integration, tutorial survival, stat windows, skill acquisitions.
+3. `hunter_gate` — Modern dungeon awakenings, hunter guilds, rank classifications, media spectacle.
+4. `tower_climb` — Floor-by-floor trials, admin sponsors, shop systems, ruthless competition.
+5. `dungeon` — Labyrinth ecology, monster drops, survival mechanics, territory building.
+6. `villainess_transmigration` — Otome game villainess survival, death flag evasion, romantic subversion.
+7. `academy` — Magic academy competitions, prodigy rivalries, mock battles, student rankings.
+8. `murim` — Wuxia factions, qi cultivation, unorthodox sects, martial philosophy.
+9. `cultivation` — Xianxia realms, heavenly tribulations, pill forging, face-slap progression.
+10. `reincarnated_noble` — Weakest baron's son, territory development, political maneuvering.
+11. `modern_fantasy` — Hidden occult societies, supernatural business, urban investigations.
+12. `litrpg` — Explicit numbers, leveling math, class specializations, quest notifications.
+13. `office_life` — Corporate warfare, modern workplace progression, dry salaryman humor.
+14. `rofan` — Romance fantasy, high-society gossip, contractual marriages, imperial intrigue.
+15. `returnee` — Conquering another realm, returning home to family, overwhelming power superiority.
+16. `apocalypse_survival` — Resource scarcity, safe-zone construction, harsh moral choices.
+17. `sports` — Athletic system, tactical playbooks, tournament climb, physical training arcs.
+18. `entertainment_industry` — Actor/idol regression, method acting breakthroughs, box office success.
+19. `historical_transmigration` — Modern technology introduced to ancient dynasties, military reforms.
+
+---
+
+<a id="-api-reference"></a>
+## 🔌 API & CLI Reference
+
+FastAPI exposes a complete, OpenAPI-compliant REST interface on `127.0.0.1:54321`:
+
+### Core Endpoints
+
+| Area | Method | Endpoint | Description |
+| :--- | :--- | :--- | :--- |
+| **Autonomous Jobs** | `POST` | `/api/autonomous/jobs` | Create and launch autonomous novel generation job |
+| | `GET` | `/api/autonomous/jobs/{id}` | Inspect live job status, current stage, and token metrics |
+| | `POST` | `/api/autonomous/jobs/{id}/pause` | Pause running job execution |
+| | `POST` | `/api/autonomous/jobs/{id}/resume` | Resume paused or interrupted job |
+| **Director Steering** | `GET` | `/api/autonomous/jobs/{id}/style` | Retrieve active Webnovel Style Profile |
+| | `PATCH` | `/api/autonomous/jobs/{id}/style` | Live deep-merge update of style profile |
+| | `POST` | `/api/autonomous/jobs/{id}/directives` | Append a MUST / PREFER / AVOID directive |
+| | `GET` | `/api/autonomous/jobs/{id}/redo/plan` | Preview chapter rewind and discard plan |
+| | `POST` | `/api/autonomous/jobs/{id}/redo` | Execute canon rewind to chapter N and replan |
+| **Story Charter** | `GET` | `/api/story-charter/{project_id}` | Retrieve project Story Charter |
+| | `POST` | `/api/story-charter/interpret` | AI interpretation of raw author brief |
+| | `POST` | `/api/story-charter/check` | Deterministic conflict check against existing lore |
+| **Prose Craft** | `POST` | `/api/craft/grade` | Instant deterministic webnovel craft grading |
+| | `POST` | `/api/craft/polish` | Surgical line polish on cited spans |
+| | `POST` | `/api/craft/hook-sharpen` | Adversarial cliffhanger hook rewrite |
+| **Novel Bible** | `GET` | `/api/bible/{project_id}/summary` | Retrieve 11-ledger health and completeness summary |
+| | `POST` | `/api/bible/{project_id}/proposals/review` | Accept or reject proposed chapter lore updates |
+| | `POST` | `/api/bible/cards/{id}/locks` | Toggle author locks on specific Bible fields |
+
+Interactive API documentation is accessible at `http://127.0.0.1:54321/docs` when the backend is running.
+
+---
+
+<a id="-project-directory-structure"></a>
+## 📂 Project Directory Structure
 
 ```
-NovelForge/
-  ├── install.bat         # Create backend venv + install backend/frontend deps (Windows)
-  ├── run-backend.bat     # Start the backend using backend/venv (Windows)
-  ├── run-frontend.bat    # Start the Electron dev server (Windows)
-  ├── backend/        # FastAPI backend
-  │   ├── venv/            # Python virtual environment (created by install.bat)
-  │   ├── app/
-  │   │   ├── api/        # API routes
-  │   │   ├── db/         # DB models and sessions
-  │   │   ├── schemas/    # Pydantic data models
-  │   │   └── services/   # Core business logic
-  │   └── main.py       # Entry point
-  │
-  └── frontend/       # Electron + Vue3 frontend
-      └── src/
-          ├── main/       # Electron main process
-          ├── preload/    # Preload scripts
-          └── renderer/   # Vue renderer process
-              └── src/
-                  ├── components/ # Vue components
-                  ├── services/   # Frontend services
-                  ├── stores/     # Pinia state management
-                  └── views/      # Page views
+NovelForge-EN/
+├── install.bat                 # One-click Windows installer (Python venv + npm)
+├── run-backend.bat             # One-click Windows backend runner
+├── run-frontend.bat            # One-click Windows Electron/Vite runner
+├── docImgs/                    # Visual assets, architecture diagrams, screenshots
+├── docs/                       # Specialized operations & architecture guides
+│   ├── ci.md                   # CI workflows, branch protection & ratchets
+│   ├── kimi-k3.md              # Kimi K3 token budgets & preflight protocols
+│   ├── live-qualification.md   # Live credentialed qualification procedures
+│   ├── migrations.md           # Database migration policies & SQLite backups
+│   ├── prose-craft.md          # Multi-pass scene drafting & AI-tic elimination
+│   ├── security.md             # Local loopback security boundary & key masking
+│   ├── setup.md                # Clean installation & troubleshooting guide
+│   ├── story-charter.md        # Author brief interpretation & boundary scoping
+│   ├── story-memory.md         # Chapter digests, Story So Far, continuity guard
+│   └── webnovel-style-engine.md# 19 subgenres, platforms & conformance grader
+├── backend/                    # FastAPI Core Backend
+│   ├── app/
+│   │   ├── api/                # REST endpoints (/autonomous, /craft, /bible, etc.)
+│   │   ├── db/                 # SQLModel definitions & Alembic migrations
+│   │   ├── schemas/            # Pydantic schemas for cards, bibles, and ledgers
+│   │   └── services/           # Core business logic
+│   │       ├── autonomous/     # End-to-end pipeline, beat planner, budget ledger
+│   │       ├── forge/          # Context compiler, living memory, prose craft
+│   │       └── webnovel/       # 19 subgenre templates, conformance grader
+│   ├── tests/                  # Deterministic test suite (300+ pytest tests)
+│   └── main.py                 # Application entry point (127.0.0.1:54321)
+└── frontend/                   # Electron + Vue 3 Desktop Application
+    ├── src/
+    │   ├── main/               # Electron main process & IPC handlers
+    │   ├── preload/            # Preload scripts & secure bridges
+    │   └── renderer/           # Vue 3 Renderer Application
+    │       ├── components/     # UI components (Director, Bible, Studio, Editor)
+    │       ├── composables/    # Reactive Pinia composables
+    │       ├── views/          # Views (Dashboard, Autonomous, Editor, Workflows)
+    │       └── api/            # Typed backend client wrappers
+    └── package.json            # Node dependencies and build scripts
 ```
 
 ---
 
-<a id="outlook"></a>
-## Outlook
+<a id="-specialized-docs"></a>
+## 📚 Technical Documentation Index
 
-NovelForge is still in an early iteration stage. The author is well aware there is huge room for improvement in creation workflow, consistency maintenance, UI design, interaction experience, and more.
+For in-depth operational and architectural specifications, consult the dedicated guides in [`docs/`](./docs):
 
-The best tools come from community wisdom. Whether you are a creator or a developer, you are sincerely welcome to:
+- 🛠️ [**Setup & Installation Guide**](./docs/setup.md) — Detailed environment setup, dependencies, and troubleshooting.
+- 📱 [**Webnovel Style Engine & Conformance**](./docs/webnovel-style-engine.md) — Subgenre mechanics, platform conventions, and rhythm grading.
+- ✒️ [**Prose Craft Specification**](./docs/prose-craft.md) — Multi-pass scene drafting, subtext packets, voice dossiers, and AI-tic removal.
+- 📜 [**Story Charter Guide**](./docs/story-charter.md) — Author briefs, boundary enforcement, and prompt injection precedence.
+- 🧠 [**Story Memory & Living Canon**](./docs/story-memory.md) — Chapter digests, world state carry-forward, and continuity guards.
+- 🤖 [**Kimi K3 Autonomous Pipeline**](./docs/kimi-k3.md) — 65k context budget allocation and structured output recovery.
+- 🛡️ [**Security & Loopback Boundary**](./docs/security.md) — Local-only binding, credential masking, and isolation rules.
+- 🗄️ [**Database Migrations & Safety**](./docs/migrations.md) — Forward schema migrations and automatic SQLite pre-migration backups.
+- 🚦 [**CI & Branch Protection**](./docs/ci.md) — Deterministic testing gates and workflow ratchets.
+- 🧪 [**Live Qualification Procedures**](./docs/live-qualification.md) — Step-by-step instructions for live-provider testing.
 
-*   Raise valuable feature suggestions or report issues in **Issues**.
-*   Share your unique insights on the creation workflow.
+---
+
+<a id="-contributing--license"></a>
+## 🤝 Contributing & License
+
+### Contributing
+Contributions from both narrative designers and software engineers are warmly welcomed!
+- Please read [CONTRIBUTING.md](./CONTRIBUTING.md) for commit standards, pull request workflows, and test coverage requirements.
+- Review [ROADMAP.md](./ROADMAP.md) to see upcoming milestones.
+
+### Dual License Model
+NovelForge-EN is released under a **dual-license model**:
+- **Open Source**: By default, licensed under the **GNU Affero General Public License v3.0 (AGPLv3)**. See [LICENSE](./LICENSE) for full details.
+- **Commercial SaaS / Hosted Deployment**: Providing NovelForge-EN as a cloud-hosted backend or commercial SaaS to third parties requires a commercial license from the original authors.
+
+---
+
+<div align="center">
+  <sub>Engineered with precision for authors, worldbuilders, and narrative architects.</sub>
+</div>
