@@ -207,6 +207,10 @@ def named_entities(prose: str, language: Optional[str] = None) -> Dict[str, List
             continue
         if "'" in token or "’" in token:
             continue
+        from app.services.forge.firewall import is_clean_proper_entity
+
+        if not is_clean_proper_entity(token):
+            continue
         # A sentence-initial single capitalized word needs a second occurrence
         # (anywhere) to count as a name; a one-off could be an ordinary word.
         if m.start() in starts and " " not in token:
