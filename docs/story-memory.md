@@ -112,14 +112,20 @@ against the Bible slice and the digests:
 
 | code | what it catches |
 | --- | --- |
-| `prohibited_reveal` | compiled prohibited knowledge surfaces in prose (critical) |
+| `prohibited_reveal` | compiled prohibited knowledge is *stated* in prose (critical when the proposition is reproduced with its named subject or as an identity claim; medium for an ambiguous overlap) |
 | `dead_entity` | an entity recorded dead acts/speaks (critical) |
 | `possession_conflict` | an item recorded as lost is used again |
 | `location_teleport` | POV opens somewhere else than the previous ending with no transition |
 | `unknown_entity` | recurring proper name not in Bible, digests or named extras |
 | `head_hopping`, `time_inversion` | reused Forge validators |
 | `dropped_strong_hook` | strong hook expected "next chapter" not addressed |
-| `forbidden_outcome` | outline's `forbidden_outcomes` appear |
+| `forbidden_outcome` | outline's `forbidden_outcomes` are reproduced as propositions (high / medium by confidence) |
+
+Spoiler matching (`prohibited_reveal`, `forbidden_outcome`) is shared with the Forge
+validators through `app/services/forge/spoilers.py`: a statement is decomposed into
+the names it is about and the specific terms it asserts, and a sentence matches only
+when it reproduces that proposition (inflection-tolerant, never prefix-based, questions
+excluded). Two shared words in a two-sentence window are **not** a match.
 
 `use_llm: true` adds a conservative model pass (`Continuity Guard` prompt,
 `LlmContinuityFindings` schema) whose cited issues are merged; deterministic

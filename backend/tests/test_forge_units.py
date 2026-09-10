@@ -227,11 +227,14 @@ def test_claims_extraction_and_model_claim_cross_check():
 
 
 def test_entity_validation_flags_source_leak_and_unplanned_recurring():
-    prose = "Nadia watched Ilse Varn cross the yard. Corvin waved. Corvin waved again. Nadia did not."
+    prose = "Nadia watched Ilse Varn cross the yard. Corvin waved. Corvin waved again. Nadia did not. Then Corvin left."
     issues = v.validate_entities(prose, allowed=["Nadia"], source_entities=["Ilse Varn", "Marit Solen"], language="en")
     codes = {(i.code, i.evidence) for i in issues}
     assert ("source_entity_leak", "Ilse Varn") in codes
     assert ("unauthorized_entity", "Corvin") in codes
+    # Two mentions of an unplanned name are advisory, never blocking (regex NER is evidence, not proof).
+    two = v.validate_entities("Nadia watched. Corvin waved. Corvin waved again.", allowed=["Nadia"], language="en")
+    assert [(i.code, i.severity) for i in two] == [("unplanned_name", "medium")]
 
 
 def test_outline_validation_detects_missing_and_out_of_order_and_future():

@@ -18,11 +18,12 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from pydantic import BaseModel, Field
 
+from app.services.forge.lexicon import is_non_name_word
 from app.services.forge.textmetrics import detect_language, split_sentences
 
 CLAIMS_VERSION = "claims-1"
@@ -53,16 +54,27 @@ def _parse_scene_handoff_text(text: str) -> Dict[str, str]:
 
 _CAP_NAME = re.compile(r"\b[A-Z][a-z]+(?:\s[A-Z][a-z]+)?\b")
 _HANGUL_NAME = re.compile(r"[\uac00-\ud7a3]{2,4}(?=(?:은|는|이|가|을|를|의|에게|과|와|도|만|께서|이가)?\s)")
-_COMMON_CAP = {
-    "The", "And", "But", "She", "He", "They", "It", "That", "This", "There", "Then", "When", "What", "Why", "How", "Who", "Where", "You", "His", "Her", "Their", "For", "With", "From", "Not", "Yes", "No", "If", "In", "On", "At", "As", "Of", "To", "So", "Now", "Here", "Once", "Maybe", "Nothing", "Something", "Someone", "Everyone", "Nobody", "All", "One", "Only", "Again", "Another", "Every", "Some", "Any", "Well", "Right", "Left", "Good", "Fine", "Okay", "Please", "Thank", "Sorry", "Wait", "Stop", "Look", "Listen", "Come", "Let", "Go", "Do", "Did", "Was", "Were", "Had", "Have", "Has", "Would", "Could", "Should", "Will", "Can", "May", "Might", "Must", "Am", "Are", "Is", "Be", "Been", "Its", "My", "Me", "We", "Us", "Morning", "Night", "Day", "Evening", "Today", "Tomorrow", "Yesterday", "Sir", "Madam", "Miss", "Lord", "Lady", "Before", "After", "Because", "While", "Still", "Even", "Just", "Perhaps", "Chapter", "Inside", "Outside", "Behind", "Above", "Below", "Later", "Meanwhile", "Somewhere", "Nowhere", "Anyone", "Whatever", "Whoever", "Instead", "Except", "Until", "Unless", "Though", "Although", "Yet", "Also", "Almost", "Already", "Always", "Never", "Often", "Sometimes", "Soon", "Suddenly", "Finally", "Actually", "Really", "Very", "Too", "Quite", "Rather", "Enough", "Both", "Either", "Neither", "Each", "Few", "Many", "Most", "Much", "Several", "Such", "Whole", "Half", "Two", "Three", "Four", "Five", "Ten", "Hundred", "Thousand", "First", "Second", "Third", "Last", "Next", "Other", "Same", "Own", "Old", "New", "Long", "Short", "High", "Low", "Big", "Small", "Little", "Great", "Cold", "Hot", "Dark", "Light", "Silence", "Somehow", "Everything", "Anything",
-    "Like", "Or", "Nor", "Try", "Trying", "Tried", "Tries", "Student", "Students", "Teacher", "Teachers", "Class", "Classes", "Black", "White", "Red", "Blue", "Green", "Yellow", "Gold", "Silver", "Death", "Flag", "Flags", "Game", "Master", "Admin", "System", "Status", "Window", "Interface", "Scene", "Room", "Dorm", "Dormitory", "Academy", "Office", "Infirmary", "Library", "Don", "Won", "Cannot", "Couldn", "Wouldn", "Shouldn", "Didn", "Isn", "Aren", "Wasn", "Weren", "Haven", "Hasn", "Hadn", "Looked", "Looking", "Looks", "Seemed", "Seeming", "Seems", "Think", "Thinks", "Thought", "Thinking", "Ask", "Asks", "Asked", "Asking", "Say", "Says", "Said", "Saying", "Tell", "Tells", "Told", "Telling", "Feel", "Feels", "Felt", "Feeling", "Turn", "Turns", "Turned", "Turning", "Walk", "Walks", "Walked", "Walking", "Step", "Steps", "Stepped", "Stepping", "Stand", "Stands", "Stood", "Standing", "Sit", "Sits", "Sat", "Sitting", "Take", "Takes", "Took", "Taking", "Give", "Gives", "Gave", "Giving", "Make", "Makes", "Made", "Making", "Came", "Coming", "Went", "Going", "Know", "Knows", "Knew", "Knowing", "See", "Sees", "Saw", "Seeing", "Hear", "Hears", "Heard", "Hearing", "Find", "Finds", "Found", "Finding", "Leave", "Leaves", "Leaving",
-    "Eyes", "Eye", "Oh", "Ah", "Ha", "Hmm", "Demon", "Demon Lord", "Hero", "Heroine", "King", "Queen", "Prince", "Princess", "Duke", "Duchess", "Count", "Countess", "Baron", "Baroness", "God", "Goddess", "Lord", "Lady",
-    "Your", "Yours", "Mine", "Ours", "Theirs",
-    "Six", "Seven", "Eight", "Nine", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety", "Million", "Billion",
-    "By", "Kept", "Opened", "Adjusted", "Counting", "Lazy", "Charity", "Maximum", "Minimum", "Item", "Material", "Platinum", "Condition", "Cosmetic", "Note", "Gemstone", "Sapphire", "Concealed", "Held", "Taking", "Setting", "Drawing", "Putting", "Turning", "Standing", "Looking", "Passing", "Walking", "Running", "Moving", "Hearing", "Watching", "Touching", "Holding", "Pulling", "Pushing", "Reaching", "Entering", "Leaving", "Stopping", "Starting", "Waiting", "Checking", "Finding", "Signet", "Brooch", "Appraisal", "Pawnshop", "Vault", "Counter", "Ledger", "Coin", "Coins", "Gold", "Silver", "Copper",
-    "I've", "I'm", "I'll", "I'd", "We've", "They've", "You've", "He's", "She's", "It's", "There's", "What's", "Don't", "Didn't", "Won't", "Wouldn't", "Can't", "Couldn't", "Haven't", "Hasn't", "Hadn't", "Isn't", "Aren't", "Wasn't", "Weren't",
-    "Poisoned", "Injured", "Wounded", "Bleeding", "Dying", "Dead", "Corrupted", "Broken", "Shocked", "Terrified", "Trapped", "Forced", "Surrounded", "Determined", "Unable", "Aware", "Unaware", "Afraid", "Lost", "Hidden", "Suddenly", "Immediately", "Naturally", "Unfortunately", "Fortunately", "Clearly", "Obviously", "Slowly", "Quickly", "Carefully", "Silently", "Softly", "Loudly", "Gently", "Calmly"
+# Capitalised words that are not names for reasons the lexicon cannot know:
+# genre nouns that webnovel prose routinely capitalises (System, Status, Guild
+# ...), spatial adverbs and states of being that open sentences.
+_GENRE_CAP = {
+    "system", "status", "window", "interface", "admin", "game", "flag", "flags", "quest", "skill", "level", "class", "classes", "dungeon", "guild", "rank", "title", "stat", "stats", "hp", "mp", "exp",
+    "inside", "outside", "behind", "above", "below", "beyond", "except", "like", "unlike",
+    "dorm", "dormitory", "office", "infirmary", "library", "academy", "hall", "tower", "palace", "temple", "church", "castle", "manor", "estate", "market", "square", "street", "road", "gate", "wall",
+    "step", "steps",
 }
+_STATE_ADJ = {"poisoned", "injured", "wounded", "bleeding", "dying", "dead", "corrupted", "broken", "shocked", "terrified", "trapped", "forced", "surrounded", "determined", "unable", "aware", "afraid", "lost", "hidden", "alone", "silent", "still"}
+
+
+def _is_common_capitalized(word: str) -> bool:
+    """A capitalised word that is ordinary English rather than a proper name.
+
+    Delegates to the shared lexicon (stop words, numbers, titles, colours, time
+    words, inflected verbs and adverbs) and adds the genre nouns and state
+    adjectives above.
+    """
+    w = word.lower()
+    return len(w) <= 2 or w in _GENRE_CAP or w in _STATE_ADJ or is_non_name_word(w)
 
 _POSSESS_EN = re.compile(r"\b([A-Z][a-z]+)\s+(?:took|picked up|pocketed|received|was handed|accepted|stole|grabbed|kept|now held|carried)\s+(?:the|a|an|his|her)?\s*([a-z][a-z\- ]{2,40}?)(?:[.,;]| and | from | that | which )")
 _LOSE_EN = re.compile(r"\b([A-Z][a-z]+)\s+(?:dropped|lost|gave away|handed over|surrendered|threw away|left behind)\s+(?:the|a|an|his|her)?\s*([a-z][a-z\- ]{2,40}?)(?:[.,;]| to | and )")
@@ -175,51 +187,103 @@ def _find(prose: str, needle: str, start: int = 0) -> Tuple[int, int]:
     return (idx, idx + len(needle)) if idx >= 0 else (-1, -1)
 
 
+def _sentence_starts(prose: str, lang: str) -> Set[int]:
+    """Character offsets where a sentence (or a quoted/parenthesised line) begins."""
+    starts: Set[int] = set()
+    pos = 0
+    for s in split_sentences(prose, lang):
+        idx = prose.find(s, pos)
+        if idx < 0:
+            continue
+        starts.add(idx)
+        m_lead = re.match(r'^[\s"“\'‘(\[]+', s)
+        if m_lead:
+            starts.add(idx + m_lead.end())
+        pos = idx + len(s)
+    for m in re.finditer(r'(?:^|\n)[\s"“\'‘(\[]*', prose):
+        starts.add(m.end())
+    # After a colon, semicolon, dash or an opening quote mid-sentence, capitalisation restarts too.
+    for m in re.finditer(r'[:;—–]\s+|["“]\s*', prose):
+        starts.add(m.end())
+    return starts
+
+
 def named_entities(prose: str, language: Optional[str] = None) -> Dict[str, List[Tuple[int, int]]]:
-    """Candidate proper names with spans. EN: capitalized non-sentence-initial-stopwords; KO: Hangul 2-4 syllable tokens before particles."""
+    """Candidate proper names with their spans.
+
+    English: a capitalised token (or a run of up to two) counts as a name when it
+    is *positionally* evidenced — it appears capitalised at least once where
+    English would not capitalise an ordinary word (mid-sentence), or it is a
+    multi-word run — and is not an ordinary word by the lexicon. Sentence-initial
+    words alone are never names: "Twelve coins…", "Opened at dawn…" and
+    "Counting was…" recur at sentence starts in normal prose. A word's lowercase
+    form appearing in the same text is strong evidence against it being a name.
+
+    Korean: Hangul 2–4 syllable tokens directly before a particle.
+    """
     lang = language or detect_language(prose)
     out: Dict[str, List[Tuple[int, int]]] = {}
     if lang == "ko":
         for m in _HANGUL_NAME.finditer(prose):
             out.setdefault(m.group(0), []).append((m.start(), m.end()))
         return out
-    sentences = split_sentences(prose, lang)
-    starts: set = set()
-    pos = 0
-    for s in sentences:
-        idx = prose.find(s, pos)
-        if idx >= 0:
-            starts.add(idx)
-            m_lead = re.match(r'^[\s"“\'‘(\[]+', s)
-            if m_lead:
-                starts.add(idx + m_lead.end())
-            pos = idx + len(s)
-    for m in re.finditer(r'(?:^|\n)[\s"“\'‘(\[]*', prose):
-        starts.add(m.end())
-    raw_matches: Dict[str, List[Tuple[int, int]]] = {}
+    starts = _sentence_starts(prose, lang)
+    lowercase_forms = {w for w in re.findall(r"\b[a-z][a-z]+\b", prose)}
+    candidates: Dict[str, List[Tuple[int, int, bool]]] = {}
+    consumed_until = -1  # end offset of the last re-extended entity (see below)
     for m in _CAP_NAME.finditer(prose):
+        if m.start() < consumed_until:
+            continue  # already absorbed into the previous (re-extended) entity
         token = m.group(0)
-        first = token.split()[0]
-        if first in _COMMON_CAP or token in _COMMON_CAP:
-            continue
-        # Skip tokens that are part of a contraction (e.g. Don't, Won't, It's)
-        if m.end() < len(prose) and prose[m.end()] in ("'", "’"):
-            continue
-        if "'" in token or "’" in token:
-            continue
-        from app.services.forge.firewall import is_clean_proper_entity
-
-        if not is_clean_proper_entity(token):
-            continue
-        # A sentence-initial single capitalized word needs a second occurrence
-        # (anywhere) to count as a name; a one-off could be an ordinary word.
-        if m.start() in starts and " " not in token:
-            others = [x for x in re.finditer(rf"\b{re.escape(token)}\b", prose) if x.start() != m.start()]
-            if not others:
+        words = token.split()
+        m_start = m.start()
+        # Contraction heads ("Don", "It", "They") are stop words and drop out here; a
+        # possessive ("Nadia's") keeps its name because the regex stops at the apostrophe.
+        if _is_common_capitalized(words[0]):
+            if len(words) == 1:
                 continue
-        out.setdefault(token, []).append((m.start(), m.end()))
+            # "The Salt" / "Old Marek": drop the ordinary head and keep the name that follows.
+            m_start += len(words[0]) + 1
+            token, words = words[1], [words[1]]
+            if _is_common_capitalized(token):
+                continue  # "Status Window", "Guild Master": two ordinary genre words
+            # "The Signet Brooch": the regex paired "The Signet" and left "Brooch" for the next
+            # match; re-extend so the full name is one entity.
+            tail = re.match(r"\s[A-Z][a-z]+\b", prose[m_start + len(token):])
+            if tail and not _is_common_capitalized(tail.group(0).strip()):
+                token = token + tail.group(0)
+                words = token.split()
+                consumed_until = m_start + len(token)
+        elif len(words) == 2 and _is_common_capitalized(words[1]):
+            # "Marek Opened" — a name followed by an ordinary capitalised word: keep the name only.
+            token, words = words[0], [words[0]]
+        mid_sentence = m_start not in starts
+        # A possessive ("Nadia's") is positive evidence of a name even at a sentence start.
+        possessive = m_start + len(token) < len(prose) and prose[m_start + len(token)] in ("'", "’") and prose[m_start + len(token) + 1: m_start + len(token) + 2].lower() == "s"
+        candidates.setdefault(token, []).append((m_start, m_start + len(token), mid_sentence or possessive))
+    for token, spans in candidates.items():
+        words = token.split()
+        if len(words) == 1 and token.lower() in lowercase_forms:
+            continue  # "Gold ... gold": an ordinary word that happened to open a sentence
+        if len(words) == 1 and not any(mid for _, _, mid in spans):
+            # Only ever sentence-initial: a name needs to recur before it counts (the lexicon
+            # already rejected inflected verbs and adverbs such as "Opened" or "Suddenly").
+            if len(spans) < 2:
+                continue
+        out[token] = [(a, b) for a, b, _ in spans]
+    # A single-word name that is also the head of a recorded two-word name ("Brooch" in
+    # "Signet Brooch") is the same entity; fold it into the longer form.
+    multi = {t for t in out if " " in t}
+    for t in list(out):
+        if " " in t:
+            continue
+        owners = [mw for mw in multi if t in mw.split()]
+        if owners:
+            owner = owners[0]
+            owner_spans = {(a, b) for a, b in out[owner]}
+            out[owner] = sorted(owner_spans | {(a, b) for a, b in out[t] if not any(oa <= a < ob for oa, ob in owner_spans)})
+            del out[t]
     return out
-
 
 def extract_claims(prose: str, language: Optional[str] = None) -> List[Claim]:
     lang = language or detect_language(prose)

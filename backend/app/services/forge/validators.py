@@ -17,13 +17,18 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from app.services.forge import firewall as fw
+from app.services.forge import spoilers
 from app.services.forge.claims import Claim, named_entities
-from app.services.forge.textmetrics import detect_language, in_range, measure, split_paragraphs, split_sentences, tokenize
+from app.services.forge.lexicon import STOP_WORDS
+from app.services.forge.textmetrics import detect_language, in_range, measure, split_paragraphs, tokenize
 
-VALIDATORS_VERSION = "validators-1"
+VALIDATORS_VERSION = "validators-2"
+# An unplanned proper name must recur this often before it blocks a chapter (regex NER is
+# evidence, not proof; two mentions of a capitalised word are not a new cast member).
+UNAUTHORIZED_ENTITY_MIN_MENTIONS = 3
 STYLE_EVALUATOR_VERSION = "style-eval-1"
 
 
@@ -66,17 +71,22 @@ def _norm(s: Any) -> str:
 
 
 # ------------------------------------------------------------------ entities
-def validate_entities(prose: str, *, allowed: Iterable[str], source_entities: Iterable[str] = (), language: Optional[str] = None, max_new_named: int = 0) -> List[Issue]:
-    from app.services.forge.firewall import is_clean_proper_entity
+def validate_entities(prose: str, *, allowed: Iterable[str], source_entities: Iterable[str] = (), language: Optional[str] = None, max_new_named: int = 0, recurring_threshold: int = UNAUTHORIZED_ENTITY_MIN_MENTIONS) -> List[Issue]:
+    """Named-entity gate.
 
+    * a source-novel entity in the draft is a critical leak (hard failure);
+    * an unplanned proper name that recurs ``recurring_threshold`` times or more is an
+      unauthorized recurring entity (high: a persistent cast member the Bible does
+      not know about);
+    * fewer mentions are advisory (medium) — the detector is regex-based, so a
+      two-off capitalised token must never block a chapter on its own.
+    """
     allowed_l = {_norm(a) for a in allowed if a}
     # Tokens of allowed multi-word names ("the Salt Archive" -> archive) are legitimate short references.
     allowed_tokens = {t for a in allowed_l for t in a.split() if len(t) >= 3 and t not in ("the", "and", "of")}
     source_l = {_norm(s) for s in source_entities if s}
     issues: List[Issue] = []
     for name, spans in named_entities(prose, language).items():
-        if not is_clean_proper_entity(name):
-            continue
         n = _norm(name)
         parts = n.split()
         if n in allowed_l or any(p in allowed_l for p in parts) or all(p in allowed_tokens for p in parts):
@@ -84,11 +94,10 @@ def validate_entities(prose: str, *, allowed: Iterable[str], source_entities: It
         if n in source_l or any(p in source_l for p in parts):
             issues.append(Issue("entity", "source_entity_leak", "critical", f"Source-novel entity '{name}' appears in the draft", spans[0], "Replace with an allowed original entity or remove", name))
             continue
-        # Unknown proper name: recurring (>=2 mentions) counts as an unauthorized recurring entity.
-        if len(spans) >= 2:
+        if len(spans) >= recurring_threshold:
             issues.append(Issue("entity", "unauthorized_entity", "high", f"Unplanned named entity '{name}' recurs {len(spans)} times", spans[0], "Remove the name or replace with an allowed participant / unnamed extra", name))
-        elif max_new_named == 0:
-            issues.append(Issue("entity", "unplanned_name", "medium", f"Unplanned proper name '{name}' (single mention)", spans[0], "Prefer an unnamed extra", name))
+        elif len(spans) >= 2 or max_new_named == 0:
+            issues.append(Issue("entity", "unplanned_name", "medium", f"Unplanned proper name '{name}' ({len(spans)} mention{'s' if len(spans) != 1 else ''})", spans[0], "Prefer an unnamed extra or add the entity to the Bible", name))
     return issues
 
 
@@ -149,9 +158,9 @@ def _beat_terms(beat: Dict[str, Any]) -> List[str]:
                 terms.append(norm_k)
             for tok in tokenize(str(k)):
                 tok_norm = _norm(tok)
-                if len(tok_norm) >= 4 and tok_norm not in _PROHIBITED_STOP and tok_norm not in terms:
+                if len(tok_norm) >= 4 and tok_norm not in STOP_WORDS and tok_norm not in terms:
                     terms.append(tok_norm)
-    desc_terms = [t for t in tokenize(text) if len(t) >= 4 and t not in _PROHIBITED_STOP]
+    desc_terms = [t for t in tokenize(text) if len(t) >= 4 and t not in STOP_WORDS]
     for dt in desc_terms:
         if dt not in terms:
             terms.append(dt)
@@ -205,13 +214,18 @@ def locate_beats(prose: str, beats: Sequence[Dict[str, Any]]) -> List[Optional[i
     return positions
 
 
-def _term_pattern(t: str) -> str:
-    # Stem English inflectional suffixes (e.g. reveals -> reveal, poisoning -> poison, forges -> forg)
-    # to catch morphological variations and paraphrasing in prose.
-    stem = re.sub(r"(ing|ed|es|s|ers|er)$", "", t)
-    if len(stem) >= 4:
-        return rf"(?<![\w]){re.escape(stem)}\w*"
-    return rf"(?<![\w]){re.escape(t)}(?![\w])"
+def _spoiler_issues(prose: str, statements: Iterable[str], *, layer: str, code: str, message: str, hint: str, language: Optional[str], participants: Iterable[str]) -> List[Issue]:
+    """Shared spoiler check for the outline and POV layers.
+
+    A high-confidence reproduction of a prohibited statement blocks the chapter; a
+    medium-confidence one (short statement, or no named subject) is advisory so a
+    single ambiguous overlap can never trap the repair loop.
+    """
+    issues: List[Issue] = []
+    for hit in spoilers.find_spoilers(prose, statements, participants=participants, language=language):
+        severity = "critical" if hit.confidence == "high" else "medium"
+        issues.append(Issue(layer, code, severity, f"{message}: {hit.statement[:120]}", hit.span, hint, f"{hit.statement} | matched: {', '.join(hit.matched)}"))
+    return issues
 
 
 def validate_outline(prose: str, *, beats: Sequence[Dict[str, Any]], forbidden: Iterable[str], language: Optional[str] = None, participants: Optional[Iterable[str]] = None) -> List[Issue]:
@@ -224,32 +238,7 @@ def validate_outline(prose: str, *, beats: Sequence[Dict[str, Any]], forbidden: 
     for (i1, p1), (i2, p2) in zip(found, found[1:]):
         if p2 < p1:
             issues.append(Issue("outline", "beat_out_of_order", "high", f"Beat {i2 + 1} occurs before beat {i1 + 1}", (p2, p2 + 1), "Reorder the scenes to follow the outline"))
-    lang = language or detect_language(prose)
-    sents = [s for s in split_sentences(prose, lang) if not s.rstrip().endswith(("?", "？"))]
-    name_tokens: Set[str] = set()
-    if participants:
-        for p in participants:
-            name_tokens.update(tokenize(str(p).lower()))
-    for f in forbidden:
-        terms = [t for t in tokenize(re.sub(r"^\(ch\.\d+\)\s*", "", str(f))) if len(t) >= 3 and t not in _PROHIBITED_STOP]
-        if len(terms) < 2:
-            continue
-        content_terms = [t for t in terms if t not in name_tokens]
-        if not content_terms:
-            continue
-        min_content = min(2, len(content_terms))
-        threshold = max(len(terms) if len(terms) <= 3 else 3, int(len(terms) * 0.70 + 0.5))
-        hit_span = None
-        for i in range(len(sents)):
-            window = " ".join(sents[i:i + 2]).lower()
-            matched_terms = [t for t in terms if re.search(_term_pattern(t), window, re.I)]
-            matched_content = [t for t in matched_terms if t not in name_tokens]
-            if len(matched_terms) >= threshold and len(matched_content) >= min_content:
-                idx = prose.find(sents[i])
-                hit_span = (idx, idx + len(sents[i])) if idx >= 0 else None
-                break
-        if hit_span is not None:
-            issues.append(Issue("outline", "future_beat_advanced", "critical", f"Forbidden / future outcome appears: {str(f)[:120]}", hit_span, "Remove the future event; end where the outline ends", str(f)))
+    issues += _spoiler_issues(prose, forbidden, layer="outline", code="future_beat_advanced", message="Forbidden / future outcome appears", hint="Remove the future event; end where the outline ends", language=language, participants=list(participants or []))
     return issues
 
 
@@ -260,6 +249,7 @@ _THOUGHT_VERBS_KO = r"(?:생각했다|느꼈다|알았다|깨달았다|기억했
 
 def validate_pov(prose: str, *, pov: str, others: Iterable[str], pov_type: str = "third_person", prohibited: Iterable[str] = (), language: Optional[str] = None) -> List[Issue]:
     issues: List[Issue] = []
+    others = [o for o in others if o]
     lang = language or detect_language(prose)
     for other in others:
         if not other or _norm(other) == _norm(pov):
@@ -281,42 +271,12 @@ def validate_pov(prose: str, *, pov: str, others: Iterable[str], pov_type: str =
         third = len(re.findall(r"\b(?:he|she)\s+(?:thought|felt|knew)\b", prose, re.I)) if lang != "ko" else 0
         if third >= 3:
             issues.append(Issue("pov", "pov_drift", "high", "First-person chapter reports other characters' feelings as fact", None, "Keep to the narrator's perception"))
-    # Questions are not reveals: a POV wondering about a fact is legitimate suspense.
-    name_tokens: Set[str] = set()
-    if pov:
-        name_tokens.update(tokenize(str(pov).lower()))
-    for o in others:
-        name_tokens.update(tokenize(str(o).lower()))
-
-    sents = [s for s in split_sentences(prose, lang) if not s.rstrip().endswith(("?", "？"))]
-    for p in prohibited:
-        p_clean = re.sub(r"^\(ch\.\d+\)\s*", "", re.sub(r"\s*\(.*?\)\s*$", "", str(p)))
-        terms = [t for t in tokenize(p_clean) if len(t) >= 3 and t not in _PROHIBITED_STOP]
-        if len(terms) < 2:
-            continue
-        content_terms = [t for t in terms if t not in name_tokens]
-        if not content_terms:
-            continue
-        min_content = min(2, len(content_terms))
-        threshold = max(len(terms) if len(terms) <= 3 else 3, int(len(terms) * 0.70 + 0.5))
-        hit_span = None
-        for i in range(len(sents)):
-            window = " ".join(sents[i:i + 2]).lower()
-            matched_terms = [t for t in terms if re.search(_term_pattern(t), window, re.I)]
-            matched_content = [t for t in matched_terms if t not in name_tokens]
-            if len(matched_terms) >= threshold and len(matched_content) >= min_content:
-                idx = prose.find(sents[i])
-                hit_span = (idx, idx + len(sents[i])) if idx >= 0 else None
-                break
-        if hit_span is not None:
-            issues.append(Issue("pov", "forbidden_reveal", "critical", f"Prohibited knowledge surfaces: {p_clean[:120]}", hit_span, "Remove every hint of this fact", p_clean))
+    issues += _spoiler_issues(prose, prohibited, layer="pov", code="forbidden_reveal", message="Prohibited knowledge surfaces", hint="Remove every hint of this fact", language=lang, participants=[pov, *others])
     return issues
 
 
-_PROHIBITED_STOP = {
-    "the", "and", "for", "was", "are", "not", "but", "his", "her", "she", "him", "has", "had", "all", "any", "one", "two", "who", "how", "why", "did", "does", "that", "this", "with", "from", "have", "been", "were", "will", "would", "about", "before", "after", "their", "there", "which", "when", "what", "into", "onto", "over", "under", "than", "then", "them", "they", "your", "some", "very", "also", "just", "only", "chapter", "planned", "reveal", "revealed", "reveals", "revealing", "payoff", "window", "along", "pov", "unaware", "yet",
-    "is", "be", "being", "am", "its", "our", "ours", "theirs", "more", "most", "less", "least", "such", "well", "even", "still", "here", "where", "whom", "whose", "both", "each", "few", "other", "no", "nor", "own", "same", "so", "too", "can", "could", "shall", "should", "may", "might", "must", "now", "between", "through", "above", "below", "behind", "against", "without", "within", "during", "towards", "toward", "upon"
-}
+# Backwards-compatible alias: the stop list now lives in ``lexicon`` (one copy for every validator).
+_PROHIBITED_STOP = STOP_WORDS
 
 
 # -------------------------------------------------------------------- character
@@ -475,12 +435,16 @@ def model_style_criteria(fingerprint: Dict[str, Any]) -> List[Dict[str, str]]:
 
 
 def validate_style(prose: str, fingerprint: Dict[str, Any], *, beat_positions: Optional[List[Optional[int]]] = None, max_failed: int = 4) -> Tuple[List[Issue], Dict[str, Any]]:
+    """Style adherence is advisory: metrics measured against a fingerprint's percentile
+    bands describe rhythm, never canon, so no style finding blocks a chapter. A broad
+    miss is reported as ``medium`` (surfaced to the repair editor as guidance when a
+    repair happens anyway); a narrow miss as ``low``."""
     report = style_report(prose, fingerprint, beat_positions=beat_positions)
     issues: List[Issue] = []
     failed = report["failed_dimensions"]
     core = [f for f in failed if f in ("dialogue_ratio", "sentence_len_mean", "paragraph_len_mean", "ending_type", "opening_type", "internal_thought_ratio")]
     if len(failed) > max_failed or len(core) >= 3:
-        issues.append(Issue("style", "style_out_of_range", "high", f"{len(failed)} style dimensions out of target range: {', '.join(failed)}", None, "; ".join(report["repair_recommendations"][:4])))
+        issues.append(Issue("style", "style_out_of_range", "medium", f"{len(failed)} style dimensions out of target range: {', '.join(failed)}", None, "; ".join(report["repair_recommendations"][:4])))
     elif failed:
         issues.append(Issue("style", "style_deviation", "low", f"Minor style deviations: {', '.join(failed)}", None, "; ".join(report["repair_recommendations"][:3])))
     return issues, report
@@ -491,11 +455,11 @@ def validate_originality(prose: str, profile: Optional[fw.SourceProfile], *, all
     if profile is None:
         return [], {"passed": True, "skipped": "no source profile"}
     report = fw.check_text(prose, profile, allowed_names=allowed)
-    issues = [Issue("originality", f.check, "critical" if f.severity == "critical" else ("high" if f.severity == "high" else "low"), f.detail, f.span, "Rewrite the span with original wording / entities", f.matched) for f in report.findings]
+    issues = [Issue("originality", f.check, f.severity if f.severity in ("critical", "high", "medium", "low") else "low", f.detail, f.span, "Rewrite the span with original wording / entities", f.matched) for f in report.findings]
     return issues, report.as_dict()
 
 
 __all__ = [
-    "STYLE_EVALUATOR_VERSION", "VALIDATORS_VERSION", "Issue", "ValidationReport", "locate_beats", "model_style_criteria", "style_report",
+    "STYLE_EVALUATOR_VERSION", "UNAUTHORIZED_ENTITY_MIN_MENTIONS", "VALIDATORS_VERSION", "Issue", "ValidationReport", "locate_beats", "model_style_criteria", "style_report",
     "validate_characters", "validate_entities", "validate_facts", "validate_originality", "validate_outline", "validate_pov", "validate_style", "validate_temporal",
 ]

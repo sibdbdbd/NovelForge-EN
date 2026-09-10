@@ -7,6 +7,9 @@ Guarantees:
 - The drafting model is never called when compilation fails.
 - A draft that still has blocking issues after ``max_repairs`` is not committed
   and the run ends in ``status='rejected'`` with a structured report.
+- The repair loop stops early when it is futile (the editor returns an empty or
+  unchanged draft, or exactly the same blocking findings survive a rewrite aimed
+  at them) and never ends on a rewrite that validated worse than an earlier one.
 - Repair prompts only receive failed spans plus their constraints, never a
   licence to add facts.
 - Every run records model calls, context hash, validation and sync reports.
@@ -14,11 +17,12 @@ Guarantees:
 
 from __future__ import annotations
 
+import hashlib
 import json
-import re
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, Iterable, List, Optional, Protocol, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Sequence, Tuple
 
 if TYPE_CHECKING:  # pragma: no cover
     from app.services.ai.prompt_registry import ResolvedPrompt
@@ -39,7 +43,7 @@ from app.services.forge import validators as v
 from app.services.forge.compiler import ChapterContextCompiler, CompiledChapterContext, ContextCompileError
 from app.services.forge.corpus import load_source_chapters
 from app.services.forge.craft import CraftInputs, CraftOptions, craft_chapter
-from app.services.forge.textmetrics import infer_pov, measure
+from app.services.forge.textmetrics import measure
 
 PIPELINE_VERSION = "pipeline-2"
 # Legacy labels kept for provenance readers; live runs record the Prompt-table version (see prompt_registry).
@@ -108,8 +112,25 @@ def _c(card: Card) -> Dict[str, Any]:
     return card.content if isinstance(card.content, dict) else {}
 
 
+def _profile_cache_key(chapters: Sequence[Any], names: Sequence[str], roles: Dict[str, str], locations: Sequence[str], objects: Sequence[str]) -> str:
+    """Content identity of everything a SourceProfile is built from."""
+    h = hashlib.sha256()
+    h.update(fw.FIREWALL_VERSION.encode())
+    for ch in chapters:
+        h.update(f"{ch.chapter_id}|{ch.text_hash}|{hashlib.sha256(json.dumps(ch.analysis or {}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()}\n".encode())
+    h.update(json.dumps([sorted(names), sorted(roles.items()), sorted(locations), sorted(objects)], ensure_ascii=False).encode())
+    return h.hexdigest()
+
+
+# Per-process cache of firewall profiles keyed by source content. Building one
+# tokenises and n-grams the entire source manuscript; the chapter loop asked for
+# it on every chapter (and the whole-novel audit twice more).
+_PROFILE_CACHE: "OrderedDict[str, fw.SourceProfile]" = OrderedDict()
+_PROFILE_CACHE_SIZE = 4
+
+
 def source_profile_for(session: Session, project_id: int) -> Optional[fw.SourceProfile]:
-    """Build (or reuse cached) firewall profile from the linked source project."""
+    """Firewall profile of the linked source project, cached by source content."""
     manifest = provenance.get_manifest(session, project_id, create=True)
     if not manifest.source_project_id:
         return None
@@ -153,7 +174,16 @@ def source_profile_for(session: Session, project_id: int) -> Optional[fw.SourceP
                     summaries.append(str(s.get("summary") or s.get("goal")))
                 if s.get("function"):
                     beats.append(str(s["function"]))
-    return fw.SourceProfile.from_chapters(chapters, manuscript_id=chapters[0].manuscript_id, entity_names=names, scene_summaries=summaries, beat_sequence=beats, character_roles=roles, locations=locations, objects=objects)
+    key = _profile_cache_key(chapters, names, roles, locations, objects)
+    cached = _PROFILE_CACHE.get(key)
+    if cached is not None:
+        _PROFILE_CACHE.move_to_end(key)
+        return cached
+    profile = fw.SourceProfile.from_chapters(chapters, manuscript_id=chapters[0].manuscript_id, entity_names=names, scene_summaries=summaries, beat_sequence=beats, character_roles=roles, locations=locations, objects=objects)
+    _PROFILE_CACHE[key] = profile
+    while len(_PROFILE_CACHE) > _PROFILE_CACHE_SIZE:
+        _PROFILE_CACHE.popitem(last=False)
+    return profile
 
 
 def _character_cards(session: Session, project_id: int) -> Dict[str, Dict[str, Any]]:
@@ -321,6 +351,11 @@ def craft_inputs_for(session: Session, ctx: CompiledChapterContext) -> CraftInpu
     )
 
 
+def _blocking_signature(report: v.ValidationReport) -> Tuple[Tuple[str, str, str], ...]:
+    """Order-independent identity of a report's blocking findings (layer, code, evidence)."""
+    return tuple(sorted((i.layer, i.code, (i.evidence or i.message)[:120]) for i in report.blocking))
+
+
 def _run_row(session: Session, project_id: int, chapter_number: int, ctx: Optional[CompiledChapterContext]) -> ChapterPipelineRun:
     manifest = provenance.get_manifest(session, project_id, create=True)
     row = ChapterPipelineRun(project_id=project_id, chapter_number=chapter_number, outline_card_id=ctx.outline_card_id if ctx else None, status="running", stage="compile", canon_revision_before=int(manifest.canon_revision), context_hash=ctx.context_hash if ctx else "", context_manifest=ctx.manifest if ctx else {})
@@ -398,22 +433,43 @@ async def run_chapter(
         report, all_claims, model_claims = validate_draft(session, ctx, prose, profile=profile, fingerprint=fingerprint, style_max_failed=opts.style_max_failed)
         attempts = 0
         history: List[Dict[str, Any]] = [report.as_dict()]
+        best = (prose, report, all_claims, model_claims)
+        stall_reason: Optional[str] = None
         while report.blocking and attempts < opts.max_repairs:
             attempts += 1
             _finish(session, row, stage=f"repair-{attempts}", repair_attempts=attempts)
             prose_only, _ = claims_mod.split_prose_and_claims(prose)
+            before = _blocking_signature(report)
             repaired = await drafter(role="repair", system_prompt=repair_prompt.text, user_prompt=build_repair_prompt(ctx, prose_only, report.blocking), context=ctx)
             model_calls += 1
+            repaired_only, _ = claims_mod.split_prose_and_claims(repaired)
+            if not repaired_only.strip() or repaired_only.strip() == prose_only.strip():
+                # Empty or unchanged: the editor has nothing more to offer; spending more calls cannot help.
+                stall_reason = "repair returned an empty draft" if not repaired_only.strip() else "repair returned an unchanged draft"
+                history.append({**report.as_dict(), "repair_stalled": stall_reason})
+                break
             prose = repaired
             report, all_claims, model_claims = validate_draft(session, ctx, prose, profile=profile, fingerprint=fingerprint, style_max_failed=opts.style_max_failed)
             history.append(report.as_dict())
+            if len(report.blocking) < len(best[1].blocking):
+                best = (prose, report, all_claims, model_claims)
+            if report.blocking and _blocking_signature(report) == before:
+                # The same findings survived a rewrite aimed at them: a further identical prompt is futile.
+                stall_reason = "identical blocking findings after repair"
+                history[-1]["repair_stalled"] = stall_reason
+                break
+        if report.blocking and len(best[1].blocking) < len(report.blocking):
+            # Never end on a rewrite that made things worse; keep the best-validated draft.
+            prose, report, all_claims, model_claims = best
         final_report = report.as_dict()
         final_report["history"] = history
+        if stall_reason:
+            final_report["repair_stalled"] = stall_reason
         if craft_report:
             final_report["craft"] = craft_report
         if report.blocking:
-            _finish(session, row, status="rejected", stage="validate", validation_report=final_report, style_report=report.style, model_calls=model_calls, repair_attempts=attempts, error=f"{len(report.blocking)} blocking issue(s) remain after {attempts} repair attempt(s)")
-            return PipelineResult(status="rejected", run_id=row.id, chapter_number=chapter_number, context=ctx.as_dict(), prose=prose, validation=final_report, style=report.style, model_calls=model_calls, repair_attempts=attempts, error={"code": "validation_failed", "blocking": [i.as_dict() for i in report.blocking]}, craft=craft_report)
+            _finish(session, row, status="rejected", stage="validate", validation_report=final_report, style_report=report.style, model_calls=model_calls, repair_attempts=attempts, error=f"{len(report.blocking)} blocking issue(s) remain after {attempts} repair attempt(s)" + (f" ({stall_reason})" if stall_reason else ""))
+            return PipelineResult(status="rejected", run_id=row.id, chapter_number=chapter_number, context=ctx.as_dict(), prose=prose, validation=final_report, style=report.style, model_calls=model_calls, repair_attempts=attempts, error={"code": "validation_failed", "blocking": [i.as_dict() for i in report.blocking], "repair_stalled": stall_reason}, craft=craft_report)
         prose_only, model_claims = claims_mod.split_prose_and_claims(prose)
         _finish(session, row, stage="commit", validation_report=final_report, style_report=report.style, model_calls=model_calls, repair_attempts=attempts)
         card = _upsert_chapter_text(session, project_id, ctx, prose_only, validation=final_report)

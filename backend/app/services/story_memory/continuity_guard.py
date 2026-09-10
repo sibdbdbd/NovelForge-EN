@@ -9,7 +9,7 @@ Deterministic checks (no LLM, always run):
 - ``possession_conflict`` draft mentions an item an entity no longer holds
 - ``location_teleport``   POV opens somewhere else than the previous ending without travel words
 - ``dropped_strong_hook`` strong hook opened last chapter and neither mentioned nor in outline
-- ``forbidden_outcome``   outline's forbidden_outcomes appear (keyword match)
+- ``forbidden_outcome``   outline's forbidden_outcomes are reproduced as propositions (forge.spoilers)
 
 Optional LLM pass asks a model for contradictions against the compiled memory
 and returns cited issues; deterministic findings are never removed by it.
@@ -30,8 +30,10 @@ from app.services.ai.core import llm_service
 from app.services.bible.bible_service import BibleService
 from app.services.bible.context_compiler import ContextCompiler
 from app.services.forge.claims import named_entities
-from app.services.forge.textmetrics import detect_language, split_sentences, tokenize
-from app.services.forge.validators import _PROHIBITED_STOP, validate_pov, validate_temporal
+from app.services.forge.lexicon import STOP_WORDS
+from app.services.forge.spoilers import find_spoilers
+from app.services.forge.textmetrics import detect_language, tokenize
+from app.services.forge.validators import validate_pov, validate_temporal
 from app.services.story_memory.digest_service import DigestService
 from app.services.story_memory.story_so_far import StorySoFarCompiler
 
@@ -113,7 +115,8 @@ class ContinuityGuard:
         checks.append("head_hopping")
         for issue in validate_pov(draft, pov=pov_name, others=[p for p in participants if _norm(p) != _norm(pov_name)], prohibited=compiled.prohibited, language=lang):
             code = "prohibited_reveal" if issue.code == "forbidden_reveal" else issue.code
-            sev = "critical" if code == "prohibited_reveal" else "medium"
+            # A high-confidence reveal blocks; an ambiguous overlap (validators: medium) stays advisory.
+            sev = ("critical" if issue.severity == "critical" else "medium") if code == "prohibited_reveal" else "medium"
             issues.append(ContinuityIssue(code=code, severity=sev, message=issue.message, excerpt=_excerpt(draft, issue.span), span=list(issue.span) if issue.span else None, suggestion=issue.hint))
 
         # 2. Time inversion.
@@ -135,7 +138,7 @@ class ContinuityGuard:
                     break
             lost = ent.states.get("possession", "")
             if lost and re.search(r"\b(lost|stolen|gave away|destroyed|broken|no longer|dropped|surrendered|taken)\b", lost, re.I):
-                item_terms = [t for t in tokenize(lost) if len(t) >= 4 and t not in _PROHIBITED_STOP and t not in ("lost", "stolen", "gave", "away", "destroyed", "broken", "longer", "dropped", "surrendered", "taken")]
+                item_terms = [t for t in tokenize(lost) if len(t) >= 4 and t not in STOP_WORDS and t not in ("lost", "stolen", "gave", "away", "destroyed", "broken", "longer", "dropped", "surrendered", "taken")]
                 for term in item_terms[:3]:
                     rx = re.compile(rf"\b{re.escape(ent.entity)}\b[^.!?\n]{{0,80}}\b(?:drew|held|raised|gripped|used|swung|wielded|clutched|drawing)\b[^.!?\n]{{0,40}}\b{re.escape(term)}\b", re.I)
                     m = rx.search(draft)
@@ -154,7 +157,7 @@ class ContinuityGuard:
                 last_loc = last.locations[-1]
             if last_loc:
                 opening = draft[:1500]
-                loc_terms = [t for t in tokenize(last_loc) if len(t) >= 4 and t not in _PROHIBITED_STOP]
+                loc_terms = [t for t in tokenize(last_loc) if len(t) >= 4 and t not in STOP_WORDS]
                 mentions_last = any(re.search(rf"\b{re.escape(t)}\b", opening, re.I) for t in loc_terms)
                 other_locs = {_norm(l) for d in digests for l in d.locations if _norm(l) != _norm(last_loc)}
                 other_hit = next((l for l in other_locs if l and re.search(rf"\b{re.escape(l)}\b", opening, re.I)), None)
@@ -184,27 +187,18 @@ class ContinuityGuard:
             for h in prev.hooks_opened:
                 if h.strength != "strong" or _norm(h.expected_payoff_window) not in ("next chapter", "immediately", "next scene", "the next chapter"):
                     continue
-                terms = [t for t in tokenize(h.hook) if len(t) >= 4 and t not in _PROHIBITED_STOP]
+                terms = [t for t in tokenize(h.hook) if len(t) >= 4 and t not in STOP_WORDS]
                 if not terms:
                     continue
                 hits = sum(1 for t in terms if t in draft_l or t in outline_text)
                 if hits < max(1, len(terms) // 3):
                     issues.append(ContinuityIssue(code="dropped_strong_hook", severity="high", message=f"Strong hook from ch.{prev.chapter_number} expected '{h.expected_payoff_window}' is not addressed: {h.hook}", suggestion="Address it, at least acknowledge it, or downgrade its expected window in the digest"))
 
-        # 6. Outline forbidden outcomes.
+        # 6. Outline forbidden outcomes (shared proposition-level matcher; see forge.spoilers).
         checks.append("forbidden_outcome")
-        for fo in (outline or {}).get("forbidden_outcomes") or []:
-            terms = [t for t in tokenize(str(fo)) if len(t) >= 4 and t not in _PROHIBITED_STOP]
-            if len(terms) < 2:
-                continue
-            sents = split_sentences(draft, lang)
-            for i in range(len(sents)):
-                window = _norm(" ".join(sents[i:i + 2]))
-                matched = [t for t in terms if re.search(rf"\b{re.escape(t)}\w*", window)]
-                if len(matched) >= max(2, int(len(terms) * 0.6 + 0.5)):
-                    span = _find(draft, sents[i][:60])
-                    issues.append(ContinuityIssue(code="forbidden_outcome", severity="high", message=f"Outline forbids this outcome here: {fo}", excerpt=_excerpt(draft, span), span=list(span) if span else None, suggestion="Move this outcome to the chapter where it is planned"))
-                    break
+        for hit in find_spoilers(draft, (outline or {}).get("forbidden_outcomes") or [], participants=participants, language=lang):
+            sev = "high" if hit.confidence == "high" else "medium"
+            issues.append(ContinuityIssue(code="forbidden_outcome", severity=sev, message=f"Outline forbids this outcome here: {hit.statement}", excerpt=_excerpt(draft, hit.span), span=list(hit.span), suggestion="Move this outcome to the chapter where it is planned"))
 
         return self._finish(project_id, chapter, draft, issues, checks)
 
