@@ -316,6 +316,8 @@ def craft_inputs_for(session: Session, ctx: CompiledChapterContext) -> CraftInpu
         closing_hook=str(oc.get("closing_hook") or ""), location=location if location and location != "None" else "",
         cards_by_name=cards_by_name, relationships=relationships, knowledge_gaps=gaps,
         style_profile=style_profile, author_directives=directives_text,
+        chapter_number=int(ctx.chapter_number or 1),
+        pacing_mode="grounding" if int(ctx.chapter_number or 1) == 1 else "standard",
     )
 
 

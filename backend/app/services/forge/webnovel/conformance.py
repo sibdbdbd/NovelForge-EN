@@ -89,7 +89,15 @@ def _dialogue_followed_by_verdict(paras: Sequence[str]) -> Tuple[int, int]:
     return d, v
 
 
-def measure_conformance(prose: str, profile: WebnovelStyleProfile, *, language: Optional[str] = None, closing_hook_plan: str = "") -> WebnovelConformance:
+def measure_conformance(
+    prose: str,
+    profile: WebnovelStyleProfile,
+    *,
+    language: Optional[str] = None,
+    closing_hook_plan: str = "",
+    chapter_number: Optional[int] = None,
+    pacing_mode: Optional[str] = None,
+) -> WebnovelConformance:
     lang = language or detect_language(prose)
     text = prose or ""
     paras = split_paragraphs(text)
@@ -242,9 +250,14 @@ def measure_conformance(prose: str, profile: WebnovelStyleProfile, *, language: 
         payoffs.append("face_slap")
     metrics.update({"micro_payoffs": len(payoffs), "reaction_shots": reactions, "underestimation_cues": under, "tier_mentions": tiers, "tier_gain": 1.0 if tier_gain else 0.0})
     reward = 8.0
+    is_grounding = (chapter_number == 1) or (pacing_mode == "grounding")
     if len(payoffs) < r.dopamine_per_chapter:
-        reward -= 3.0 if not payoffs else 1.5
-        findings.append(_finding("reward_missing", "high" if not payoffs else "medium", f"{len(payoffs)} earned win(s) detected; the profile promises ≥{r.dopamine_per_chapter} per chapter" + (f" ({', '.join(e.reward_types[:3])}…)" if e.reward_types else ""), "Land one concrete win before the last beat: a deduction, a measured gain, a doubter proven wrong, a verbal victory — shown, with a witness"))
+        if not is_grounding:
+            reward -= 3.0 if not payoffs else 1.5
+            findings.append(_finding("reward_missing", "high" if not payoffs else "medium", f"{len(payoffs)} earned win(s) detected; the profile promises ≥{r.dopamine_per_chapter} per chapter" + (f" ({', '.join(e.reward_types[:3])}…)" if e.reward_types else ""), "Land one concrete win before the last beat: a deduction, a measured gain, a doubter proven wrong, a verbal victory — shown, with a witness"))
+        else:
+            if not payoffs:
+                reward -= 0.5
     if under >= 1 and reactions == 0 and e.face_slap_cadence != "none":
         reward -= 1.5
         findings.append(_finding("reversal_without_reaction", "medium", "The protagonist is underestimated but no onlooker reaction is shown", "When the reversal lands, cut to the doubter's face, the room's murmur, one re-evaluation"))

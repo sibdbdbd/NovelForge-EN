@@ -18,7 +18,7 @@ from app.schemas.webnovel import ChapterShape, GenreEngine, NarrationConventions
 # Keyword cues (lowercase) -> subgenre. Order matters: more specific first.
 SUBGENRE_CUES: List[tuple] = [
     ("regression", ("regress", "regression", "went back in time", "second chance", "returned to the past", "before it all went wrong", "回归", "회귀")),
-    ("villainess_transmigration", ("villainess", "transmigrat", "possessed the villain", "reincarnated as the villain", "otome", "reverse harem", "duke's daughter", "악녀")),
+    ("villainess_transmigration", ("villainess", "possessed the villain", "reincarnated as the villain", "otome", "reverse harem", "duke's daughter", "악녀")),
     ("tower_climb", ("tower", "floor", "climber", "trial of the", "ascend the", "탑")),
     ("hunter_gate", ("hunter", "gate", "awakened", "awakening", "s-rank", "a-rank", "guild", "raid", "monster surge", "헌터", "게이트")),
     ("dungeon", ("dungeon", "boss room", "loot", "explorer", "던전")),

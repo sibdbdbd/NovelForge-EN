@@ -79,8 +79,12 @@ def validate_blueprints(chapters: Sequence[Dict[str, Any]], arch: Dict[str, Any]
         if ch.get("location") and str(ch["location"]).strip().lower() not in locs:
             problems.append({"code": "location_invalid", "chapter": n, "message": f"Location '{ch.get('location')}' is not a listed location"})
         beats = ch.get("beats") or []
-        if len(beats) < 3:
-            problems.append({"code": "beats_too_few", "chapter": n, "message": f"Chapter {n} has {len(beats)} beats (need >= 3)"})
+        if len(beats) < 2:
+            problems.append({"code": "beats_too_few", "chapter": n, "message": f"Chapter {n} has {len(beats)} beats (need >= 2)"})
+        elif len(beats) > 6:
+            problems.append({"code": "beats_too_many", "chapter": n, "message": f"Chapter {n} has {len(beats)} beats (maximum is 6 to avoid rushed episodic bloat)"})
+        if n == 1 and len(beats) > 3:
+            problems.append({"code": "ch1_overstuffed", "chapter": n, "message": f"Chapter 1 has {len(beats)} beats. Chapter 1 MUST use 2-3 beats for grounding, orientation, and protagonist voice"})
         for b in beats:
             if str(b.get("function") or "") not in BEAT_FUNCTIONS:
                 problems.append({"code": "beat_function_invalid", "chapter": n, "message": f"Beat function '{b.get('function')}' is not in the allowed list"})
@@ -114,13 +118,123 @@ def validate_blueprints(chapters: Sequence[Dict[str, Any]], arch: Dict[str, Any]
 
 # ------------------------------------------------------------------ prompt
 
+_PROTAGONIST_PREMISE_KEYWORDS = (
+    "transmigrat", "regress", "reincarnat", "past life", "former life",
+    "previous life", "original novel", "original webnovel", "earth", "korea",
+    "modern world", "isekai", "woke up in", "prior identity",
+)
+
+
+def _is_protagonist_premise_fact(fact: str, pov: str, knowers_at_start: Sequence[str]) -> bool:
+    fact_lower = fact.lower()
+    pov_lower = (pov or "").lower()
+    knowers_lower = [str(k).lower() for k in knowers_at_start]
+    if any(kw in fact_lower for kw in _PROTAGONIST_PREMISE_KEYWORDS):
+        if not knowers_lower or pov_lower in knowers_lower or any(part in fact_lower for part in pov_lower.split() if len(part) > 2):
+            return True
+    return False
+
+
 def _arch_digest(arch: Dict[str, Any]) -> str:
-    lines = ["[STORY CONTRACT]", json.dumps(arch.get("contract") or {}, ensure_ascii=False)]
+    lines = ["[STORY CONTRACT & FOUNDATION]"]
+    contract = arch.get("contract") or {}
+    if isinstance(contract, dict):
+        if contract.get("primary_fantasy"):
+            lines.append(f"Primary Fantasy: {contract.get('primary_fantasy')}")
+        if contract.get("thematic_question") or contract.get("central_dramatic_question"):
+            lines.append(f"Central Dramatic Question: {contract.get('thematic_question') or contract.get('central_dramatic_question')}")
+        if contract.get("expected_tone") or contract.get("tone"):
+            lines.append(f"Expected Tone: {contract.get('expected_tone') or contract.get('tone')}")
+        if contract.get("expected_protagonist_behavior"):
+            behaviors = contract.get("expected_protagonist_behavior")
+            b_str = ", ".join(behaviors) if isinstance(behaviors, list) else str(behaviors)
+            lines.append(f"Protagonist Behavior: {b_str}")
+        if contract.get("ending_contract"):
+            lines.append(f"Ending Contract: {contract.get('ending_contract')}")
+        if contract.get("prohibited_deviations") or contract.get("violations"):
+            violations = contract.get("prohibited_deviations") or contract.get("violations")
+            v_str = ", ".join(violations) if isinstance(violations, list) else str(violations)
+            lines.append(f"Prohibited Violations: {v_str}")
+    lines.append(json.dumps(contract, ensure_ascii=False))
+
+    # World Rules & System Constraints
+    world_rules = arch.get("world_rules") or []
+    if world_rules:
+        lines.append("\n[WORLD RULES & SYSTEM CONSTRAINTS]")
+        for w in world_rules:
+            domain = w.get("domain", "system")
+            rule = w.get("rule", "")
+            cost = f" | Cost: {w.get('cost')}" if w.get("cost") else ""
+            limits = f" | Limits: {w.get('limits')}" if w.get("limits") else ""
+            known = f" | Known by: {', '.join(w.get('known_by') or [])}" if w.get("known_by") else ""
+            lines.append(f"- [{domain}] {rule}{cost}{limits}{known}")
+
+    # Factions & Organizations
+    factions = arch.get("factions") or []
+    if factions:
+        lines.append("\n[FACTIONS & POWER DYNAMICS]")
+        for f in factions:
+            lines.append(f"- {f.get('name')}: {f.get('description', '')} | Strategic Goal: {f.get('goal', '')}")
+
+    # Key Items & Artifacts
+    items = arch.get("items") or []
+    if items:
+        lines.append("\n[KEY ITEMS & ARTIFACTS]")
+        for it in items:
+            owner = f" (owner: {it.get('owner')})" if it.get("owner") else ""
+            sig = f" | Significance: {it.get('significance')}" if it.get("significance") else ""
+            lines.append(f"- {it.get('name')}{owner}: {it.get('description', '')}{sig}")
+
+    # Characters & Dossiers
     lines.append("\n[CHARACTERS] (use these exact names)")
     for c in arch.get("characters") or []:
         arc = "; ".join(f"{p.get('phase')}@{p.get('chapter_hint')}: {p.get('state')}" for p in c.get("arc") or [])
-        lines.append(f"- {c.get('name')} ({c.get('role')}): goal={c.get('goal')}; flaw={c.get('flaw')}; secret={c.get('secret')}; must not know at start={c.get('knowledge_boundaries')}; arc={arc}; intro ch {c.get('introduction_chapter')}")
-    lines.append("\n[LOCATIONS] " + ", ".join(str(l.get("name")) for l in arch.get("locations") or []))
+        details = [f"- {c.get('name')} ({c.get('role')})"]
+        if c.get("home_location"):
+            details.append(f"home={c.get('home_location')}")
+        if c.get("goal"):
+            details.append(f"goal={c.get('goal')}")
+        if c.get("flaw"):
+            details.append(f"flaw={c.get('flaw')}")
+        if c.get("secret"):
+            details.append(f"secret={c.get('secret')}")
+        if c.get("wound"):
+            details.append(f"wound={c.get('wound')}")
+        if c.get("fear"):
+            details.append(f"fear={c.get('fear')}")
+        if c.get("voice_tells"):
+            details.append(f"voice_tells={c.get('voice_tells')}")
+        if c.get("forbidden_speech"):
+            details.append(f"forbidden_speech={c.get('forbidden_speech')}")
+        if c.get("capabilities"):
+            details.append(f"capabilities={c.get('capabilities')}")
+        if c.get("limitations"):
+            details.append(f"limitations={c.get('limitations')}")
+        if c.get("knowledge_boundaries"):
+            details.append(f"must not know at start={c.get('knowledge_boundaries')}")
+        if arc:
+            details.append(f"arc={arc}")
+        details.append(f"intro ch {c.get('introduction_chapter', 1)}")
+        lines.append("; ".join(details))
+
+    # Locations with sensory details
+    locations = arch.get("locations") or []
+    if locations:
+        lines.append("\n[LOCATIONS & ATMOSPHERE]")
+        for l in locations:
+            desc = f": {l.get('description')}" if l.get("description") else ""
+            func = f" (function: {l.get('function_in_story')})" if l.get("function_in_story") else ""
+            lines.append(f"- {l.get('name')}{desc}{func}")
+
+    # Timeline & Chronological Backstory
+    timeline = arch.get("timeline") or []
+    if timeline:
+        lines.append("\n[TIMELINE & BACKSTORY]")
+        for ev in timeline[:15]:
+            t_str = f"[{ev.get('story_time')}] " if ev.get("story_time") else ""
+            ch_str = f" (ch {ev.get('chapter')})" if ev.get("chapter") else ""
+            lines.append(f"- {t_str}{ev.get('title')}{ch_str}: {ev.get('summary')}")
+
     lines.append("\n[KNOWLEDGE FACTS & REVEAL SCHEDULE]")
     for k in arch.get("knowledge_facts") or []:
         prog = []
@@ -184,7 +298,23 @@ def build_prompt(arch: Dict[str, Any], *, chapters: Sequence[int], total: int, w
         if thread_lines:
             parts.append("\n[PLOT THREAD CONTINUITY IN THIS WINDOW]\n" + "\n".join(thread_lines))
 
-    parts.append(f"\n[TASK]\nPlan chapters {chapters[0]}-{chapters[-1]} of {total}. Target length per chapter: about {word_target} words. Produce one blueprint per chapter, in order, each with 4-8 beats.")
+    task_lines = [
+        f"\n[TASK]",
+        f"Plan chapters {chapters[0]}-{chapters[-1]} of {total}. Target length per chapter: about {word_target} words. Produce one blueprint per chapter, in order.",
+        f"",
+        f"[DYNAMIC BEAT PACING & CALIBRATION]",
+        f"Korean serialized webnovels calibrate the number of beats strictly according to the chapter's narrative function. DO NOT force every chapter into an overstuffed checklist:",
+        f"1. GROUNDING / BREATHING ROOM (2-3 beats):",
+        f"   - MANDATORY FOR CHAPTER 1: Chapter 1 MUST use 2-3 beats. Focus on orientation, situational awareness, authentic protagonist voice and internal monologue (reasoning through transmigration/regression/crisis), sensory grounding in the physical space, and one clear development/choice ending on a hook. DO NOT overwhelm Chapter 1 with 4+ rapid episodic beats or excessive dopamine popups.",
+        f"   - Also use 2-3 beats for arc beginnings, post-climax cooldowns, dialogue-driven negotiations, or quiet character-building episodes.",
+        f"2. PROGRESSION & DEVELOPMENT (3-4 beats):",
+        f"   - Standard pacing for routine quests, investigations, crafting/trading transactions, or social maneuvering.",
+        f"3. ESCALATION & CLIMAX (4-6 beats):",
+        f"   - Reserved for major setpieces, dungeon boss fights, high-stakes duels, sudden ambushes, market crashes, or volume climaxes where rapid escalation and multiple distinct turns are genuinely required.",
+        f"",
+        f"Allowed beat count per chapter: 2 to 6 beats. Each beat must have an allowed function tag, concrete description, and 2-6 distinctive keywords.",
+    ]
+    parts.append("\n".join(task_lines))
     if problems and drafts is not None:
         parts += ["\n[PREVIOUS BLUEPRINTS FAILED VALIDATION — fix ONLY these problems, keep everything else]"] + [f"- ch {p.get('chapter')}: {p['message']}" for p in problems[:30]]
         parts += ["\n[PREVIOUS BLUEPRINTS]", json.dumps(list(drafts), ensure_ascii=False)[:50000]]
@@ -200,11 +330,16 @@ def blueprint_to_outline(bp: Dict[str, Any], *, arch: Dict[str, Any], word_targe
     participants = list(dict.fromkeys([bp.get("pov")] + list(bp.get("participants") or [])))
     entity_list = participants + ([bp["location"]] if bp.get("location") else [])
     forbidden = list(bp.get("forbidden_outcomes") or [])
+    pov = bp.get("pov") or ""
     for k in arch.get("knowledge_facts") or []:
         rc = int(k.get("reader_reveal_chapter") or 0)
         cc = int(k.get("clue_chapter") or 0)
         fact_str = str(k.get("fact") or "").strip()
         if not fact_str or not rc:
+            continue
+        knowers = k.get("knowers_at_start") or []
+        # Foundational protagonist premise/origin facts must NEVER be forbidden from the protagonist's own internal thoughts
+        if _is_protagonist_premise_fact(fact_str, pov, knowers):
             continue
         if n < rc and fact_str not in forbidden:
             forbidden.append(fact_str)

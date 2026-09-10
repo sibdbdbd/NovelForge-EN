@@ -101,13 +101,20 @@ def _architecture(chapter_count: int, *, bad: bool = False) -> Dict[str, Any]:
 
 def _blueprint(n: int, total: int) -> Dict[str, Any]:
     last = n == total
-    beats = [
-        {"function": "quiet_scene_opening", "description": "Nadia counts the rivets on the hatch at dawn", "keywords": ["rivets", "hatch"]},
-        {"function": "dialogue_heavy_scene", "description": "A confrontation about the Archive; Nadia deflects", "keywords": ["Archive", "places"]},
-        {"function": "false_reassurance", "description": "Teo says the quay is clear and Nadia lets him", "keywords": ["quay", "clear"]},
-        {"function": "threat_escalation", "description": "Something on the quay goes wrong and Nadia goes out regardless", "keywords": ["went", "regardless"]},
-        {"function": "reveal" if last else "chapter_cliffhanger", "description": "Nadia names Corvin as the courier" if last else "Nadia refuses to go below; ends on a question", "keywords": ["courier", "Corvin"] if last else ["below", "Not yet"]},
-    ]
+    if n == 1:
+        beats = [
+            {"function": "quiet_scene_opening", "description": "Nadia counts the rivets on the hatch at dawn", "keywords": ["rivets", "hatch"]},
+            {"function": "dialogue_heavy_scene", "description": "A confrontation about the Archive; Nadia deflects", "keywords": ["Archive", "places"]},
+            {"function": "chapter_cliffhanger", "description": "Nadia refuses to go below; ends on a question", "keywords": ["below", "Not yet"]},
+        ]
+    else:
+        beats = [
+            {"function": "quiet_scene_opening", "description": "Nadia counts the rivets on the hatch at dawn", "keywords": ["rivets", "hatch"]},
+            {"function": "dialogue_heavy_scene", "description": "A confrontation about the Archive; Nadia deflects", "keywords": ["Archive", "places"]},
+            {"function": "false_reassurance", "description": "Teo says the quay is clear and Nadia lets him", "keywords": ["quay", "clear"]},
+            {"function": "threat_escalation", "description": "Something on the quay goes wrong and Nadia goes out regardless", "keywords": ["went", "regardless"]},
+            {"function": "reveal" if last else "chapter_cliffhanger", "description": "Nadia names Corvin as the courier" if last else "Nadia refuses to go below; ends on a question", "keywords": ["courier", "Corvin"] if last else ["below", "Not yet"]},
+        ]
     return {
         "chapter_number": n, "title": f"Rivets {n}", "purpose": "advance the manifest mystery", "pov": "Nadia Quill", "location": "Harrow Quay", "story_time": f"Day {n}", "opening_state": "dawn watch", "goal": "protect the manifest", "conflict": "the quay is not safe",
         "participants": ["Nadia Quill", "Teo Marsh", "Corvin Ashe", "Petra Vale"], "beats": beats, "reveals": ["Corvin Ashe is the courier who forges the manifests"] if last else [], "setups": ["A chalk mark on the hatch"] if n == 1 else [], "payoffs": ["the token opens the Archive cellar"] if n == max(2, total - 1) else (["the chalk is the courier's signal"] if last else []),

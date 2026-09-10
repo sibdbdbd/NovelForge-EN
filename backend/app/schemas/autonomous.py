@@ -221,7 +221,7 @@ class ChapterBlueprint(BaseModel):
     goal: str = Field(default="")
     conflict: str = Field(default="")
     participants: List[str] = Field(default_factory=list, description="Characters present (listed characters only)")
-    beats: List[BlueprintBeat] = Field(default_factory=list, description="4-8 ordered beats")
+    beats: List[BlueprintBeat] = Field(default_factory=list, description="2-6 ordered beats calibrated by chapter pacing function (grounding/ch1: 2-3, progression: 3-4, climax: 4-6)")
     reveals: List[str] = Field(default_factory=list, description="Facts revealed to the reader in this chapter")
     setups: List[str] = Field(default_factory=list)
     payoffs: List[str] = Field(default_factory=list)

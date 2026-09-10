@@ -107,6 +107,8 @@ class CraftInputs:
     # Webnovel Style Engine: the profile the chapter must read by (None = no webnovel conformance grading).
     style_profile: Optional[Any] = None
     author_directives: str = ""
+    chapter_number: int = 1
+    pacing_mode: str = "standard"
 
 
 @dataclass
@@ -164,7 +166,7 @@ def grade(prose: str, inputs: CraftInputs, *, hook: Optional[HookAnalysis] = Non
         return det
     from app.services.forge.webnovel.conformance import measure_conformance
 
-    conf = measure_conformance(prose, inputs.style_profile, language=lang, closing_hook_plan=inputs.closing_hook)
+    conf = measure_conformance(prose, inputs.style_profile, language=lang, closing_hook_plan=inputs.closing_hook, chapter_number=inputs.chapter_number, pacing_mode=inputs.pacing_mode)
     return critic_mod.merge_conformance(det, conf)
 
 
@@ -220,6 +222,19 @@ async def draft_scene_by_scene(drafter: Drafter, context: Any, base_system_promp
             parts += ["", "[WEBNOVEL STYLE — how this scene must read]", style_text]
         if inputs.author_directives:
             parts += ["", "[AUTHOR DIRECTIVES — honour these in this scene]", inputs.author_directives]
+        if texts:
+            prior_prose = "\n\n---\n\n".join(texts)
+            parts += [
+                "",
+                "[PRIOR DRAFTED SCENES IN THIS CHAPTER — ESTABLISHED CANON]",
+                "The following prose was ALREADY written for the earlier beats of this exact chapter.",
+                "CRITICAL CONTINUITY MANDATE:",
+                "- All events, dialogue, numbers, prices, currencies, and items established below are FIXED CANON.",
+                "- DO NOT restart the scene, re-introduce characters already present, repeat dialogue, or re-execute any prior beat/transaction.",
+                "- Continue smoothly from the exact ending of the prior scene.",
+                "",
+                prior_prose[-15000:],
+            ]
         parts += ["", f"[SUBTEXT PACKET — scene {scene.index}]", subtext_mod.render_packet(packet, inputs.pov), "", SCENE_DRAFT_DIRECTIVES, "", brief]
         raw = await drafter(role="drafting", system_prompt=base_system_prompt, user_prompt="\n".join(parts), context=context)
         if scene.index < len(scenes):
@@ -363,7 +378,7 @@ async def craft_chapter(
             return None
         from app.services.forge.webnovel.conformance import measure_conformance
 
-        c = measure_conformance(_prose_and_blocks(text)["prose"], inputs.style_profile, language=inputs.language, closing_hook_plan=inputs.closing_hook)
+        c = measure_conformance(_prose_and_blocks(text)["prose"], inputs.style_profile, language=inputs.language, closing_hook_plan=inputs.closing_hook, chapter_number=inputs.chapter_number, pacing_mode=inputs.pacing_mode)
         return c.model_dump(mode="json")
 
     report.webnovel_before = _conformance(raw)

@@ -565,6 +565,167 @@ def test_create_job_restarts_after_cancelled_or_failed_job(tmp_path):
     assert job3.status == "queued"
 
 
+def test_arch_digest_comprehensive_bible_context():
+    from app.services.autonomous.chapter_plan import _arch_digest
+
+    arch = {
+        "contract": {
+            "primary_fantasy": "Appraiser dominates the market",
+            "thematic_question": "Can true value be bought?",
+            "expected_tone": "deadpan pragmatic",
+            "expected_protagonist_behavior": ["calculates silently", "never begs"],
+            "ending_contract": "Unrated appraiser owns the royal exchange",
+        },
+        "world_rules": [
+            {"domain": "magic_power", "rule": "True Eye allows reading true value", "cost": "Consumes 1 day of life per appraisal", "limits": "Max 3 appraisals daily", "known_by": ["Deven"]}
+        ],
+        "factions": [
+            {"name": "Golden Merchant Guild", "description": "Monopolizes gem imports", "goal": "Control city commerce"}
+        ],
+        "items": [
+            {"name": "Eye of Commerce", "description": "Ancient lens", "owner": "Deven", "significance": "Reveals curses"}
+        ],
+        "characters": [
+            {
+                "name": "Deven", "role": "Protagonist", "home_location": "Lower District",
+                "goal": "Survive and profit", "flaw": "Secretive", "secret": "Transmigrator from Earth",
+                "wound": "Betrayed in prior life", "fear": "Dying of life drain",
+                "voice_tells": ["Numbers first"], "forbidden_speech": ["I beg you"],
+                "capabilities": ["True Eye"], "limitations": ["Physical frailty"],
+                "knowledge_boundaries": ["Does not know guild master"],
+                "arc": [{"phase": "setup", "chapter_hint": 1, "state": "Poor apprentice"}],
+                "introduction_chapter": 1
+            }
+        ],
+        "locations": [
+            {"name": "Barnaby's Pawnshop", "description": "Dusty shop smelling of copper", "function_in_story": "Starting hub"}
+        ],
+        "timeline": [
+            {"title": "Transmigration", "story_time": "Day 0", "summary": "Woke up in alley", "participants": ["Deven"]}
+        ]
+    }
+
+    digest = _arch_digest(arch)
+    assert "[STORY CONTRACT & FOUNDATION]" in digest
+    assert "Appraiser dominates the market" in digest
+    assert "[WORLD RULES & SYSTEM CONSTRAINTS]" in digest
+    assert "True Eye allows reading true value" in digest
+    assert "Consumes 1 day of life per appraisal" in digest
+    assert "[FACTIONS & POWER DYNAMICS]" in digest
+    assert "Golden Merchant Guild" in digest
+    assert "[KEY ITEMS & ARTIFACTS]" in digest
+    assert "Eye of Commerce" in digest
+    assert "Reveals curses" in digest
+    assert "Dusty shop smelling of copper" in digest
+    assert "Numbers first" in digest
+    assert "Betrayed in prior life" in digest
 
 
+def test_chapter_plan_dynamic_beat_validation():
+    from app.services.autonomous.chapter_plan import validate_blueprints
 
+    arch = {
+        "characters": [{"name": "Deven"}],
+        "locations": [{"name": "Pawnshop"}],
+    }
+
+    # Ch 1 with 2 beats: valid grounding chapter
+    bps_ch1_valid = [{
+        "chapter_number": 1, "pov": "Deven", "location": "Pawnshop",
+        "overview": "A" * 120,
+        "beats": [
+            {"function": "quiet_scene_opening", "description": "wakes up in pawnshop", "keywords": ["dust", "shop"]},
+            {"function": "chapter_cliffhanger", "description": "examines brooch", "keywords": ["brooch", "eye"]},
+        ]
+    }]
+    assert validate_blueprints(bps_ch1_valid, arch, expected=[1]) == []
+
+    # Ch 1 with > 3 beats: flagged as ch1_overstuffed
+    bps_ch1_overstuffed = [{
+        "chapter_number": 1, "pov": "Deven", "location": "Pawnshop",
+        "overview": "A" * 120,
+        "beats": [
+            {"function": "quiet_scene_opening", "description": "b1", "keywords": ["k1"]},
+            {"function": "dialogue_heavy_scene", "description": "b2", "keywords": ["k2"]},
+            {"function": "threat_escalation", "description": "b3", "keywords": ["k3"]},
+            {"function": "chapter_cliffhanger", "description": "b4", "keywords": ["k4"]},
+        ]
+    }]
+    probs = validate_blueprints(bps_ch1_overstuffed, arch, expected=[1])
+    assert any(p["code"] == "ch1_overstuffed" for p in probs)
+
+    # Ch 2 with 4 beats: valid development chapter
+    bps_ch2_valid = [{
+        "chapter_number": 2, "pov": "Deven", "location": "Pawnshop",
+        "overview": "A" * 120,
+        "beats": [
+            {"function": "quiet_scene_opening", "description": "b1", "keywords": ["k1"]},
+            {"function": "dialogue_heavy_scene", "description": "b2", "keywords": ["k2"]},
+            {"function": "threat_escalation", "description": "b3", "keywords": ["k3"]},
+            {"function": "chapter_cliffhanger", "description": "b4", "keywords": ["k4"]},
+        ]
+    }]
+    assert validate_blueprints(bps_ch2_valid, arch, expected=[2]) == []
+
+    # Ch 2 with 7 beats: beats_too_many
+    bps_ch2_too_many = [{
+        "chapter_number": 2, "pov": "Deven", "location": "Pawnshop",
+        "overview": "A" * 120,
+        "beats": [{"function": "quiet_scene_opening", "description": f"b{i}", "keywords": [f"k{i}"]} for i in range(7)]
+    }]
+    probs2 = validate_blueprints(bps_ch2_too_many, arch, expected=[2])
+    assert any(p["code"] == "beats_too_many" for p in probs2)
+
+    # Ch 2 with 1 beat: beats_too_few
+    bps_ch2_too_few = [{
+        "chapter_number": 2, "pov": "Deven", "location": "Pawnshop",
+        "overview": "A" * 120,
+        "beats": [{"function": "quiet_scene_opening", "description": "b1", "keywords": ["k1"]}]
+    }]
+    probs3 = validate_blueprints(bps_ch2_too_few, arch, expected=[2])
+    assert any(p["code"] == "beats_too_few" for p in probs3)
+
+
+def test_blueprint_unbans_protagonist_premise_fact():
+    from app.services.autonomous.chapter_plan import blueprint_to_outline
+
+    arch = {
+        "knowledge_facts": [
+            {"fact": "Deven is a transmigrator from modern Earth", "reader_reveal_chapter": 5, "knowers_at_start": ["Deven"]},
+            {"fact": "Barnaby is secretly poisoned", "reader_reveal_chapter": 8, "knowers_at_start": ["Doctor"]},
+        ]
+    }
+    bp = {
+        "chapter_number": 1, "pov": "Deven", "beats": [],
+        "overview": "A" * 120,
+    }
+    outline = blueprint_to_outline(bp, arch=arch, word_target=2500, total=10)
+    # The transmigration fact must NOT be forbidden to Deven
+    assert "Deven is a transmigrator from modern Earth" not in outline["forbidden_outcomes"]
+    # Unrelated secret facts ARE still correctly forbidden
+    assert "Barnaby is secretly poisoned" in outline["forbidden_outcomes"]
+
+
+def test_conformance_calibrates_chapter1_and_grounding_reward():
+    from app.services.forge.webnovel import measure_conformance, template_for
+
+    p = template_for("hunter_gate")
+    # Prose with zero rewards/payoffs
+    plain_prose = (
+        "I woke up on the dusty floor of the pawnshop. The boards were cold through my thin shirt.\n\n"
+        "Barnaby had not come downstairs yet. In the corner, an iron kettle was already cold.\n\n"
+        "I rubbed my eyes. The brass clock on the shelf ticked three times and stopped.\n\n"
+        "Something was wrong with the light coming through the grime-coated window."
+    )
+
+    # Normal chapter without payoffs gets reward_missing
+    conf_normal = measure_conformance(plain_prose, p, chapter_number=5)
+    assert any(f.code == "reward_missing" for f in conf_normal.findings)
+
+    # Chapter 1 waives reward_missing to allow grounding, orientation, and atmosphere
+    conf_ch1 = measure_conformance(plain_prose, p, chapter_number=1)
+    assert not any(f.code == "reward_missing" for f in conf_ch1.findings)
+
+    # Explicit pacing_mode='grounding' also waives reward_missing
+    conf_grounding = measure_conformance(plain_prose, p, chapter_number=4, pacing_mode="grounding")
+    assert not any(f.code == "reward_missing" for f in conf_grounding.findings)

@@ -165,9 +165,22 @@ def render_scene_brief(scene: ScenePlan, beats: Sequence[Dict[str, Any]], *, wor
 
 
 def stitch(scene_texts: Sequence[str]) -> str:
-    """Join scene prose with the project's scene-break convention (three line breaks)."""
+    """Join scene prose with the project's scene-break convention (three line breaks), deduplicating boundary echoes."""
     cleaned = [t.strip() for t in scene_texts if t and t.strip()]
-    return "\n\n\n".join(cleaned)
+    if len(cleaned) <= 1:
+        return cleaned[0] if cleaned else ""
+    deduped = [cleaned[0]]
+    for next_scene in cleaned[1:]:
+        prev = deduped[-1]
+        prev_paras = [p.strip() for p in prev.split("\n\n") if p.strip()]
+        next_paras = [p.strip() for p in next_scene.split("\n\n") if p.strip()]
+        while next_paras and prev_paras and next_paras[0].lower() == prev_paras[-1].lower():
+            next_paras.pop(0)
+        if next_paras and prev_paras and len(next_paras[0]) > 20 and next_paras[0] in prev_paras[-1]:
+            next_paras.pop(0)
+        if next_paras:
+            deduped.append("\n\n".join(next_paras))
+    return "\n\n\n".join(deduped)
 
 
 __all__ = ["MAX_SCENES", "MIN_SCENES", "extract_handoff", "plan_scenes", "render_scene_brief", "stitch"]
